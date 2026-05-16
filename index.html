@@ -144,9 +144,6 @@
     <button class="nav-btn" onclick="navigate('news')" id="nav-news">
       <span>◉</span><span>News</span>
     </button>
-    <button class="nav-btn" onclick="navigate('watchlist')" id="nav-watchlist">
-      <span>★</span><span>Watch</span>
-    </button>
   </div>
 </div>
 
@@ -241,7 +238,7 @@ function navigate(tab, stock=null) {
     nb.classList.add('active');
     if (!nb.querySelector('.nav-dot')) nb.insertAdjacentHTML('beforeend','<div class="nav-dot"></div>');
   }
-  const titles = {home:'MarketCast',search:'Stocks',fo:'F&O',news:'News',watchlist:'Watchlist',reco:'AI Picks'};
+  const titles = {home:'MarketCast',search:'Stocks',fo:'F&O',news:'News',reco:'AI Picks'};
   document.getElementById('page-title').textContent = (tab==='search' && stock) ? '' : titles[tab];
   renderPage();
 }
@@ -255,7 +252,6 @@ function renderPage() {
   else if (currentTab==='reco')     renderReco();
   else if (currentTab==='fo')       renderFO();
   else if (currentTab==='news')     renderNews();
-  else if (currentTab==='watchlist')renderWatchlist();
 }
 
 // ── HOME ─────────────────────────────────────────────────────────────────────
@@ -320,25 +316,49 @@ async function renderHome() {
   }
   globalHtml += `</div></div>`;
 
-  // Top stocks
-  let stocksHtml = `<div class="section"><div class="section-title">🚀 NSE Stocks</div>`;
-  for (const s of STOCKS.slice(0,8)) {
-    const inW = watchlist.includes(s.symbol);
-    stocksHtml += `
-      <div class="stock-row" onclick="navigate('search',${JSON.stringify(s)})">
-        <div class="stock-icon">${s.symbol.slice(0,3)}</div>
-        <div style="flex:1;min-width:0">
-          <div class="stock-name">${s.name}</div>
-          <div class="stock-sector">${s.sector}</div>
+  // Fetch watchlist stock prices in parallel
+  const watchStocks = STOCKS.filter(s => watchlist.includes(s.symbol));
+
+  let stocksHtml = '';
+  if (watchStocks.length === 0) {
+    stocksHtml = `
+      <div class="section">
+        <div class="section-title">⭐ MY WATCHLIST</div>
+        <div style="background:#0c1e35;border:1px solid #1b3354;border-radius:12px;padding:24px;text-align:center">
+          <div style="font-size:32px;margin-bottom:10px">☆</div>
+          <div style="font-size:14px;color:#7aa8cc;margin-bottom:6px">No stocks in watchlist</div>
+          <div style="font-size:12px;color:#3d6080">Tap ☆ on any stock in Search tab to add it here</div>
         </div>
-        <div style="text-align:right">
-          <div style="font-size:14px;font-weight:700">Loading...</div>
-          <div style="font-size:11px;color:#3d6080">—</div>
-        </div>
-        <button class="star-btn" style="color:${inW?'#ffd166':'#3d6080'}" onclick="event.stopPropagation();toggleWatchlist('${s.symbol}');renderHome()">${inW?'★':'☆'}</button>
       </div>`;
+  } else {
+    const stockPrices = await Promise.allSettled(
+      watchStocks.map(s => apiFetch(`/stock/${s.symbol}`))
+    );
+    stocksHtml = `<div class="section"><div class="section-title">⭐ MY WATCHLIST</div>`;
+    watchStocks.forEach((s, i) => {
+      const result = stockPrices[i];
+      const d      = result.status === 'fulfilled' && !result.value?.error ? result.value : null;
+      const price  = d ? `₹${fmt(d.price)}`  : '—';
+      const pct    = d ? d.pct : 0;
+      const chgTxt = d ? `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%` : '—';
+      const chgCol = pct >= 0 ? '#00c9a7' : '#ef5350';
+      stocksHtml += `
+        <div class="stock-row" onclick="navigate('search',${JSON.stringify(s).replace(/"/g,'&quot;')})">
+          <div class="stock-icon">${s.symbol.slice(0,3)}</div>
+          <div style="flex:1;min-width:0">
+            <div class="stock-name">${s.name}</div>
+            <div class="stock-sector">${s.sector}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:14px;font-weight:700">${price}</div>
+            <div style="font-size:11px;color:${chgCol}">${chgTxt}</div>
+          </div>
+          <button class="star-btn" style="color:#ffd166;font-size:20px"
+            onclick="event.stopPropagation();toggleWatchlist('${s.symbol}');renderHome()">★</button>
+        </div>`;
+    });
+    stocksHtml += `</div>`;
   }
-  stocksHtml += `</div>`;
 
   c.innerHTML = html + idxHtml + globalHtml + stocksHtml;
 }
