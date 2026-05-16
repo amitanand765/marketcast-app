@@ -262,22 +262,26 @@ function renderPage() {
 async function renderHome() {
   const c = document.getElementById('content');
   const now = new Date();
-  const h = now.getHours();
-  const open = h >= 9 && h < 16;
-  const dotColor = open ? '#00c9a7' : '#ef5350';
-  const statusText = open ? 'Market Open' : 'Market Closed';
+
+  c.innerHTML = `<div class="market-status"><span class="status-dot" style="background:#3d6080"></span><span style="color:#3d6080">Checking market...</span></div>` + spinner();
+
+  // Fetch real market status from backend
+  const [statusData, market] = await Promise.all([
+    apiFetch('/status'),
+    apiFetch('/market'),
+  ]);
+
+  const open      = statusData.open || false;
+  const dotColor  = open ? '#00c9a7' : '#ef5350';
+  const statusTxt = open ? 'Market Open' : 'Market Closed';
+  const timeStr   = statusData.time_ist || now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
 
   let html = `
     <div class="market-status" style="background:${dotColor}12;border-bottom:1px solid ${dotColor}33">
       <span class="status-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}"></span>
-      <span style="color:${dotColor};font-weight:600">${statusText}</span>
-      <span class="muted" style="margin-left:auto;font-size:11px">NSE • ${now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</span>
+      <span style="color:${dotColor};font-weight:600">${statusTxt}</span>
+      <span class="muted" style="margin-left:auto;font-size:11px">NSE • ${timeStr}</span>
     </div>`;
-
-  c.innerHTML = html + spinner();
-
-  // Fetch market data
-  const market = await apiFetch('/market');
 
   const indices = [
     {name:'NIFTY 50',   key:'NIFTY'},
