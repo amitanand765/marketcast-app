@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="stocks.js"></script>
+<script src="fo-stocks.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   body{background:#060e1c;color:#f0f8ff;font-family:'Segoe UI',system-ui,sans-serif;max-width:430px;margin:0 auto;min-height:100vh;overflow-x:hidden}
@@ -154,43 +155,11 @@ const API = 'https://marketcast-backend-production.up.railway.app';
 // ── STATE ───────────────────────────────────────────────────────────────────
 let currentTab    = 'home';
 let selectedStock = null;
-let watchlist     = JSON.parse(localStorage.getItem('watchlist') || '["RELIANCE","TCS","INFY"]');
+let watchlist     = JSON.parse(localStorage.getItem('watchlist') || '[]');
 let marketData    = {};
 let stockCache    = {};
 let newsCache     = [];
 let foInstrument  = {label:'NIFTY',name:'Nifty 50',price:22587,atm:22600,lot:50,type:'index'};
-
-// ── INSTRUMENTS ─────────────────────────────────────────────────────────────
-const FO_INSTRUMENTS = [
-  {label:'NIFTY',name:'Nifty 50',price:22587,atm:22600,lot:50,type:'index'},
-  {label:'BANKNIFTY',name:'Bank Nifty',price:48234,atm:48200,lot:15,type:'index'},
-  {label:'FINNIFTY',name:'Fin Nifty',price:21456,atm:21500,lot:40,type:'index'},
-  {label:'SENSEX',name:'BSE Sensex',price:74339,atm:74400,lot:10,type:'index'},
-  {label:'RELIANCE',name:'Reliance Industries',price:2847,atm:2850,lot:250,type:'stock'},
-  {label:'TCS',name:'Tata Consultancy Services',price:3892,atm:3900,lot:150,type:'stock'},
-  {label:'HDFCBANK',name:'HDFC Bank',price:1634,atm:1650,lot:550,type:'stock'},
-  {label:'INFY',name:'Infosys',price:1456,atm:1450,lot:400,type:'stock'},
-  {label:'ICICIBANK',name:'ICICI Bank',price:1087,atm:1100,lot:700,type:'stock'},
-  {label:'SBIN',name:'State Bank of India',price:734,atm:735,lot:1500,type:'stock'},
-  {label:'BHARTIARTL',name:'Bharti Airtel',price:1287,atm:1300,lot:475,type:'stock'},
-  {label:'KOTAKBANK',name:'Kotak Mahindra Bank',price:1789,atm:1800,lot:400,type:'stock'},
-  {label:'LT',name:'Larsen & Toubro',price:3234,atm:3250,lot:150,type:'stock'},
-  {label:'AXISBANK',name:'Axis Bank',price:1123,atm:1125,lot:625,type:'stock'},
-  {label:'BAJFINANCE',name:'Bajaj Finance',price:7123,atm:7100,lot:125,type:'stock'},
-  {label:'MARUTI',name:'Maruti Suzuki',price:12345,atm:12400,lot:50,type:'stock'},
-  {label:'SUNPHARMA',name:'Sun Pharmaceutical',price:1567,atm:1550,lot:350,type:'stock'},
-  {label:'TITAN',name:'Titan Company',price:3456,atm:3450,lot:175,type:'stock'},
-  {label:'WIPRO',name:'Wipro',price:456,atm:460,lot:1500,type:'stock'},
-  {label:'HCLTECH',name:'HCL Technologies',price:1456,atm:1450,lot:350,type:'stock'},
-  {label:'TECHM',name:'Tech Mahindra',price:1289,atm:1300,lot:500,type:'stock'},
-  {label:'DRREDDY',name:'Dr Reddys Laboratories',price:5678,atm:5700,lot:125,type:'stock'},
-  {label:'CIPLA',name:'Cipla',price:1234,atm:1250,lot:650,type:'stock'},
-  {label:'ADANIPORTS',name:'Adani Ports & SEZ',price:1234,atm:1250,lot:400,type:'stock'},
-  {label:'ADANIENT',name:'Adani Enterprises',price:2987,atm:3000,lot:250,type:'stock'},
-  {label:'ZOMATO',name:'Zomato',price:178,atm:180,lot:4500,type:'stock'},
-  {label:'HAL',name:'Hindustan Aeronautics',price:3456,atm:3450,lot:150,type:'stock'},
-  {label:'BEL',name:'Bharat Electronics',price:234,atm:235,lot:4500,type:'stock'},
-];
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 const fmt  = (n) => Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -284,37 +253,93 @@ async function renderHome() {
     {name:'SENSEX',     key:'SENSEX'},
     {name:'BANK NIFTY', key:'BANKNIFTY'},
     {name:'NIFTY IT',   key:'NIFTYIT'},
+    {name:'INDIA VIX',  key:'INDIAVIX'},
   ];
 
   let idxHtml = `<div class="index-scroll"><div class="index-row">`;
   for (const idx of indices) {
     const d = market[idx.key] || {price:0,change:0,pct:0};
+    const isVix = idx.key === 'INDIAVIX';
+    const vixColor = isVix ? (d.price > 20 ? '#ef5350' : d.price > 15 ? '#ffd166' : '#00c9a7') : null;
     idxHtml += `
       <div class="index-card">
         <div style="font-size:10px;color:#7aa8cc;margin-bottom:4px">${idx.name}</div>
-        <div style="font-size:20px;font-weight:700">${fmtN(d.price)}</div>
-        ${chgHtml(d.change,d.pct,11)}
+        <div style="font-size:20px;font-weight:700;color:${vixColor||'#f0f8ff'}">${fmtN(d.price)}</div>
+        ${isVix
+          ? `<div style="font-size:11px;color:${vixColor}">${d.price>20?'⚠️ High Fear':d.price>15?'😐 Caution':'✅ Low Fear'}</div>`
+          : chgHtml(d.change,d.pct,11)
+        }
       </div>`;
   }
   idxHtml += `</div></div>`;
 
-  // Global markets
-  const globals = [
-    {n:'Dow Jones',p:fmtN(market.DOW?.price||39127),c:market.DOW?.pct||0.43},
-    {n:'Nasdaq',   p:fmtN(market.NASDAQ?.price||18003),c:market.NASDAQ?.pct||0.67},
-    {n:'SGX Nifty',p:'22,590',c:0.21},
-    {n:'Hang Seng',p:'18,456',c:-0.34},
+  // Global markets — categorized slider
+  const globalSections = [
+    {
+      title: '🇺🇸 USA',
+      items: [
+        {n:'Dow Jones', k:'DOW',    unit:''},
+        {n:'Nasdaq',    k:'NASDAQ', unit:''},
+        {n:'S&P 500',   k:'SP500',  unit:''},
+        {n:'US VIX',    k:'VIX',    unit:'', isVix:true},
+        {n:'US 10Y',    k:'US10Y',  unit:'%', isYield:true},
+      ]
+    },
+    {
+      title: '🌏 Asia',
+      items: [
+        {n:'Gift Nifty', k:'GIFTNIFTY', unit:''},
+        {n:'Nikkei 225', k:'NIKKEI',    unit:''},
+        {n:'Hang Seng',  k:'HANGSENG',  unit:''},
+        {n:'Shanghai',   k:'SHANGHAI',  unit:''},
+        {n:'KOSPI',      k:'KOSPI',     unit:''},
+        {n:'Taiwan',     k:'TAIWAN',    unit:''},
+        {n:'STI',        k:'STI',       unit:''},
+        {n:'ASX 200',    k:'ASX',       unit:''},
+      ]
+    },
+    {
+      title: '🌍 Europe',
+      items: [
+        {n:'FTSE 100', k:'FTSE',  unit:''},
+        {n:'DAX',      k:'DAX',   unit:''},
+        {n:'CAC 40',   k:'CAC40', unit:''},
+      ]
+    },
+    {
+      title: '🛢️ Commodities & FX',
+      items: [
+        {n:'Crude Oil',  k:'CRUDE',  unit:'$', isCom:true},
+        {n:'Gold',       k:'GOLD',   unit:'$', isCom:true},
+        {n:'Silver',     k:'SILVER', unit:'$', isCom:true},
+        {n:'USD/INR',    k:'USDINR', unit:'₹', isFx:true},
+      ]
+    },
   ];
-  let globalHtml = `<div class="section"><div class="section-title">🌍 Global Markets</div><div class="flex-row">`;
-  for (const g of globals) {
+
+  let globalHtml = `<div class="section"><div class="section-title">🌍 Global Markets</div>`;
+
+  for (const sec of globalSections) {
     globalHtml += `
-      <div class="global-card">
-        <div style="font-size:9px;color:#3d6080;margin-bottom:3px">${g.n}</div>
-        <div style="font-size:14px;font-weight:600">${g.p}</div>
-        <div style="font-size:10px;color:${chgColor(g.c)}">${g.c>=0?'+':''}${g.c}%</div>
-      </div>`;
+      <div style="font-size:10px;color:#3d6080;margin-bottom:6px;letter-spacing:1px">${sec.title}</div>
+      <div class="flex-row" style="margin-bottom:12px">`;
+    for (const g of sec.items) {
+      const d = market[g.k] || {price:0,change:0,pct:0};
+      const price = d.price ? (g.isCom ? `$${fmt(d.price)}` : g.isFx ? `₹${fmt(d.price)}` : g.isYield ? `${fmt(d.price)}%` : fmtN(d.price)) : '—';
+      const col   = d.pct >= 0 ? '#00c9a7' : '#ef5350';
+      const vixCol = g.isVix ? (d.price>20?'#ef5350':d.price>15?'#ffd166':'#00c9a7') : null;
+      globalHtml += `
+        <div class="global-card" style="min-width:100px">
+          <div style="font-size:9px;color:#3d6080;margin-bottom:3px">${g.n}</div>
+          <div style="font-size:13px;font-weight:600;color:${vixCol||'#f0f8ff'}">${price}</div>
+          <div style="font-size:10px;color:${vixCol||col}">
+            ${g.isVix ? (d.price>20?'⚠️ Fear':d.price>15?'😐 Caution':'✅ Calm') : `${d.pct>=0?'+':''}${d.pct?.toFixed(2)}%`}
+          </div>
+        </div>`;
+    }
+    globalHtml += `</div>`;
   }
-  globalHtml += `</div></div>`;
+  globalHtml += `</div>`;
 
   // Fetch watchlist stock prices in parallel
   const watchStocks = STOCKS.filter(s => watchlist.includes(s.symbol));
