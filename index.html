@@ -630,6 +630,7 @@ async function renderStockDetail() {
             ['🔴', 'Resistance/Support',   tech.broke_resistance?'Broke Resistance! 🚀':tech.broke_support?'Broke Support! 📉':tech.near_resistance?'Near Resistance':tech.near_support?'Near Support':'In Range', tech.broke_resistance||(!tech.near_resistance&&!tech.broke_support), `R: ₹${fmt(tech.resistance)} | S: ₹${fmt(tech.support)}`],
             ['📰', 'News Sentiment',       sig.news_sentiment>0.1?`Positive (+${sig.news_sentiment})`:sig.news_sentiment<-0.1?`Negative (${sig.news_sentiment})`:'Neutral', sig.news_sentiment>0, `From 8+ financial news sources`],
             ['🌍', 'Global Market Mood',   `${sig.global_mood} (${sig.global_avg_pct>0?'+':''}${sig.global_avg_pct?.toFixed(2)}%)`, sig.global_avg_pct>=0, `14 global indices averaged`],
+            ['🎁', 'Gift Nifty',           `${sig.gift_nifty_signal} (${sig.gift_nifty_pct>0?'+':''}${sig.gift_nifty_pct?.toFixed(2)}%)`, sig.gift_nifty_pct>=0, `Gap: ${sig.gift_nifty_gap>0?'+':''}${sig.gift_nifty_gap?.toFixed(1)} pts expected`],
             ['🏭', 'Sector Momentum',      `${sig.sector_momentum} (${sig.sector_pct>0?'+':''}${sig.sector_pct?.toFixed(2)}%)`, sig.sector_pct>=0, `${d.sector||'—'} sector 5-day performance`],
             ['💼', 'FII/DII Activity',     sig.fii_sentiment||'Neutral',                         sig.fii_sentiment==='Buying', `Approximated from Nifty volume & price trend`],
             ['⚖️', 'Options OI (PCR)',     `${sig.options_pcr?.toFixed(2)} — ${sig.options_signal}`, sig.options_signal==='Bullish'||sig.options_pcr>1, `PCR>1.2 Bullish | PCR<0.7 Bearish`],
@@ -1193,6 +1194,7 @@ async function renderReco() {
               ['Vol',    `${d.technicals?.volume_ratio?.toFixed(1)}x`,          d.technicals?.volume_ratio>1],
               ['News',   sig.news_sentiment>0.1?'+'+(sig.news_sentiment?.toFixed(1)):sig.news_sentiment?.toFixed(1)||'0', sig.news_sentiment>0],
               ['Global', sig.global_mood,                                        sig.global_avg_pct>=0],
+              ['Gift',   `${sig.gift_nifty_pct>0?'+':''}${sig.gift_nifty_pct?.toFixed(1)}%`, sig.gift_nifty_pct>=0],
               ['FII',    sig.fii_sentiment||'—',                                 sig.fii_sentiment==='Buying'],
               ['PCR',    sig.options_pcr?.toFixed(2)||'—',                       sig.options_signal==='Bullish'],
             ].map(([l,v,bull])=>`
