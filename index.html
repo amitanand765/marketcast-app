@@ -135,6 +135,9 @@
     <button class="nav-btn" onclick="navigate('search')" id="nav-search">
       <span>⊕</span><span>Search</span>
     </button>
+    <button class="nav-btn" onclick="navigate('reco')" id="nav-reco">
+      <span>🎯</span><span>Picks</span>
+    </button>
     <button class="nav-btn" onclick="navigate('fo')" id="nav-fo">
       <span>◈</span><span>F&amp;O</span>
     </button>
@@ -238,7 +241,7 @@ function navigate(tab, stock=null) {
     nb.classList.add('active');
     if (!nb.querySelector('.nav-dot')) nb.insertAdjacentHTML('beforeend','<div class="nav-dot"></div>');
   }
-  const titles = {home:'MarketCast',search:'Stocks',fo:'F&O',news:'News',watchlist:'Watchlist'};
+  const titles = {home:'MarketCast',search:'Stocks',fo:'F&O',news:'News',watchlist:'Watchlist',reco:'AI Picks'};
   document.getElementById('page-title').textContent = (tab==='search' && stock) ? '' : titles[tab];
   renderPage();
 }
@@ -249,6 +252,7 @@ function renderPage() {
   if (currentTab==='home')      renderHome();
   else if (currentTab==='search' && !selectedStock) renderSearch();
   else if (currentTab==='search' && selectedStock)  renderStockDetail();
+  else if (currentTab==='reco')     renderReco();
   else if (currentTab==='fo')       renderFO();
   else if (currentTab==='news')     renderNews();
   else if (currentTab==='watchlist')renderWatchlist();
@@ -994,6 +998,254 @@ function newsCardHtml(n) {
       <div style="font-size:13px;color:#f0f8ff;line-height:1.55">${n.title}</div>
       ${n.tag?`<div style="margin-top:8px"><span style="background:#132840;color:#3d6080;padding:2px 8px;border-radius:4px;font-size:10px">#${n.tag}</span></div>`:''}
     </div>`;
+}
+
+// ── RECOMMENDATIONS ──────────────────────────────────────────────────────────
+const NIFTY_FO = [
+  {label:'NIFTY',     name:'Nifty 50',    lot:50,  type:'index'},
+  {label:'BANKNIFTY', name:'Bank Nifty',  lot:15,  type:'index'},
+  {label:'FINNIFTY',  name:'Fin Nifty',   lot:40,  type:'index'},
+];
+
+// Pick 10 stocks smartly — spread across sectors
+const RECO_STOCKS = [
+  {name:'Reliance Industries',symbol:'RELIANCE', sector:'Energy'},
+  {name:'TCS',               symbol:'TCS',       sector:'IT'},
+  {name:'HDFC Bank',         symbol:'HDFCBANK',  sector:'Banking'},
+  {name:'Infosys',           symbol:'INFY',      sector:'IT'},
+  {name:'ICICI Bank',        symbol:'ICICIBANK', sector:'Banking'},
+  {name:'SBI',               symbol:'SBIN',      sector:'Banking'},
+  {name:'Bajaj Finance',     symbol:'BAJFINANCE',sector:'NBFC'},
+  {name:'Tata Motors',       symbol:'TATAMOTORS',sector:'Auto'},
+  {name:'Sun Pharma',        symbol:'SUNPHARMA', sector:'Pharma'},
+  {name:'Adani Ports',       symbol:'ADANIPORTS',sector:'Infra'},
+  {name:'Zomato',            symbol:'ZOMATO',    sector:'Tech'},
+  {name:'HAL',               symbol:'HAL',       sector:'Defence'},
+  {name:'Coal India',        symbol:'COALINDIA', sector:'Mining'},
+  {name:'Axis Bank',         symbol:'AXISBANK',  sector:'Banking'},
+  {name:'Maruti Suzuki',     symbol:'MARUTI',    sector:'Auto'},
+];
+
+const FO_RECO_STOCKS = [
+  {label:'RELIANCE', name:'Reliance Industries', lot:250, type:'stock'},
+  {label:'TCS',      name:'TCS',                 lot:150, type:'stock'},
+  {label:'HDFCBANK', name:'HDFC Bank',           lot:550, type:'stock'},
+  {label:'INFY',     name:'Infosys',             lot:400, type:'stock'},
+  {label:'SBIN',     name:'SBI',                 lot:1500,type:'stock'},
+  {label:'AXISBANK', name:'Axis Bank',           lot:625, type:'stock'},
+  {label:'BAJFINANCE',name:'Bajaj Finance',      lot:125, type:'stock'},
+  {label:'TATAMOTORS',name:'Tata Motors',        lot:550, type:'stock'},
+  {label:'SUNPHARMA',name:'Sun Pharma',          lot:350, type:'stock'},
+  {label:'ZOMATO',   name:'Zomato',              lot:4500,type:'stock'},
+];
+
+async function renderReco() {
+  const c = document.getElementById('content');
+  let recoTab = 'stocks';
+
+  function tabBar() {
+    return `
+      <div class="tabs" style="top:57px">
+        <button class="tab-btn ${recoTab==='stocks'?'active':''}" onclick="recoSwitch('stocks')">📊 Stocks</button>
+        <button class="tab-btn ${recoTab==='stockfo'?'active':''}" onclick="recoSwitch('stockfo')">📈 Stock F&O</button>
+        <button class="tab-btn ${recoTab==='niftyfo'?'active':''}" onclick="recoSwitch('niftyfo')">🏦 Nifty F&O</button>
+      </div>`;
+  }
+
+  function horizBar(active) {
+    return `
+      <div style="display:flex;gap:8px;padding:12px 16px 0;overflow-x:auto">
+        ${['1 Day','7 Days','30 Days'].map((h,i)=>`
+          <button id="horiz-${i}" onclick="recoHoriz(${i})"
+            style="background:${active===i?'#4db6ff22':'#0c1e35'};border:1px solid ${active===i?'#4db6ff':'#1b3354'};
+            color:${active===i?'#4db6ff':'#3d6080'};padding:6px 16px;border-radius:20px;font-size:12px;
+            font-weight:${active===i?600:400};cursor:pointer;white-space:nowrap;font-family:inherit">${h}</button>`).join('')}
+      </div>`;
+  }
+
+  async function buildStocksTab(horizon=0) {
+    const days = [1,7,30][horizon];
+    const label = ['1 Day','7 Days','30 Days'][horizon];
+    let html = `
+      <div style="padding:12px 16px 6px">
+        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TOP STOCK PICKS — ${label.toUpperCase()} FORECAST</div>
+        <div style="font-size:12px;color:#7aa8cc">Based on ARIMA model + technical signals</div>
+      </div>`;
+
+    // Fetch all stocks in parallel
+    const results = await Promise.all(
+      RECO_STOCKS.map(s => apiFetch(`/stock/${s.symbol}`).then(d => ({...s, data:d})))
+    );
+
+    // Sort by confidence
+    const sorted = results
+      .filter(r => !r.data?.error && r.data?.recommendation)
+      .sort((a,b) => (b.data.recommendation.confidence||0) - (a.data.recommendation.confidence||0))
+      .slice(0,10);
+
+    const buys  = sorted.filter(r => r.data.recommendation.bullish);
+    const sells = sorted.filter(r => !r.data.recommendation.bullish);
+
+    function recoCard(r, rank) {
+      const rec = r.data.recommendation;
+      const d   = r.data;
+      const bull = rec.bullish;
+      return `
+        <div style="background:#0c1e35;border:1px solid ${bull?'#00c9a733':'#ef535033'};border-radius:12px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${bull?'#00c9a722':'#ef535022'};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${bull?'#00c9a7':'#ef5350'}">${rank}</div>
+            <div style="flex:1">
+              <div style="font-size:14px;font-weight:700">${r.name}</div>
+              <div style="font-size:10px;color:#3d6080">${r.sector} • ${r.symbol}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:16px;font-weight:800;color:${bull?'#00c9a7':'#ef5350'}">${bull?'▲ BUY':'▼ SELL'}</div>
+              <div style="font-size:10px;color:#3d6080">${rec.confidence}% confidence</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+            ${[
+              ['CMP',       `₹${fmt(d.price)}`,        '#f0f8ff'],
+              ['Entry',     `₹${fmt(rec.entry)}`,      '#4db6ff'],
+              ['Target',    `₹${fmt(rec.target)}`,     '#00c9a7'],
+              ['Stop Loss', `₹${fmt(rec.stop_loss)}`,  '#ef5350'],
+            ].map(([l,v,col])=>`
+              <div style="background:#132840;border-radius:8px;padding:8px 6px;text-align:center">
+                <div style="font-size:8px;color:#3d6080;margin-bottom:3px">${l}</div>
+                <div style="font-size:11px;font-weight:700;color:${col}">${v}</div>
+              </div>`).join('')}
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+            <div style="flex:1;height:4px;background:#1b3354;border-radius:2px;overflow:hidden">
+              <div style="width:${rec.confidence}%;height:100%;background:${bull?'#00c9a7':'#ef5350'};border-radius:2px"></div>
+            </div>
+            <span style="font-size:10px;color:#3d6080">RSI: ${d.technicals?.rsi?.toFixed(0)||'—'}</span>
+            <span style="font-size:10px;color:${d.technicals?.macd>d.technicals?.macd_signal?'#00c9a7':'#ef5350'}">MACD: ${d.technicals?.macd>d.technicals?.macd_signal?'▲':'▼'}</span>
+          </div>
+        </div>`;
+    }
+
+    if (buys.length) {
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin-bottom:8px;letter-spacing:1px">🟢 BUY RECOMMENDATIONS (${buys.length})</div>`;
+      buys.forEach((r,i) => { html += recoCard(r, i+1); });
+      html += `</div>`;
+    }
+    if (sells.length) {
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#ef5350;margin:12px 0 8px;letter-spacing:1px">🔴 SELL / AVOID (${sells.length})</div>`;
+      sells.forEach((r,i) => { html += recoCard(r, i+1); });
+      html += `</div>`;
+    }
+    return html;
+  }
+
+  async function buildFOTab(instruments, title, horizon=0) {
+    const label = ['1 Day','7 Days','30 Days'][horizon];
+    let html = `
+      <div style="padding:12px 16px 6px">
+        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">${title} — ${label.toUpperCase()}</div>
+        <div style="font-size:12px;color:#7aa8cc">Based on ARIMA forecast + options strategy</div>
+      </div>`;
+
+    const results = await Promise.all(
+      instruments.map(inst => apiFetch(`/fo/${inst.label}`).then(d => ({...inst, data:d})))
+    );
+
+    const valid = results.filter(r => !r.data?.error && r.data?.forecast);
+
+    function foCard(r, rank) {
+      const d = r.data;
+      const bull = d.bullish;
+      const expMove = d.expected_move || 0;
+      const strategy = d.strategy || {};
+      return `
+        <div style="background:#0c1e35;border:1px solid ${bull?'#00c9a733':'#ef535033'};border-radius:12px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${bull?'#00c9a722':'#ef535022'};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${bull?'#00c9a7':'#ef5350'}">${rank}</div>
+            <div style="flex:1">
+              <div style="font-size:14px;font-weight:700">${r.name}</div>
+              <div style="font-size:10px;color:#3d6080">${r.label} • Lot: ${r.lot}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:14px;font-weight:800;color:${bull?'#00c9a7':'#ef5350'}">${bull?'▲ BULLISH':'▼ BEARISH'}</div>
+              <div style="font-size:10px;color:#3d6080">Exp: ${bull?'+':''}${expMove.toFixed(0)} pts</div>
+            </div>
+          </div>
+
+          <!-- Options Strategy -->
+          <div style="background:${bull?'#00c9a712':'#ef535012'};border-radius:8px;padding:10px 12px;margin-bottom:8px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:4px">SUGGESTED STRATEGY</div>
+            <div style="font-size:14px;font-weight:700;color:${bull?'#00c9a7':'#ef5350'}">${strategy.action||'—'}</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            ${[
+              ['Strike',    strategy.strike||'—',     '#ffd166'],
+              ['Target',    strategy.target||'—',     '#00c9a7'],
+              ['Stop Loss', strategy.stop_loss||'—',  '#ef5350'],
+            ].map(([l,v,col])=>`
+              <div style="background:#132840;border-radius:8px;padding:8px 6px;text-align:center">
+                <div style="font-size:8px;color:#3d6080;margin-bottom:3px">${l}</div>
+                <div style="font-size:12px;font-weight:700;color:${col}">${v}</div>
+              </div>`).join('')}
+          </div>
+
+          <!-- Key levels -->
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            ${[
+              ['R2', d.levels?.resistance2||'—', '#ef535099'],
+              ['R1', d.levels?.resistance1||'—', '#ef535066'],
+              ['S1', d.levels?.support1||'—',    '#00c9a766'],
+              ['S2', d.levels?.support2||'—',    '#00c9a799'],
+            ].map(([l,v,col])=>`
+              <div style="background:#132840;border-radius:6px;padding:4px 8px;font-size:10px">
+                <span style="color:#3d6080">${l}: </span>
+                <span style="color:${col};font-weight:600">${v}</span>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }
+
+    const buys  = valid.filter(r => r.data.bullish);
+    const sells = valid.filter(r => !r.data.bullish);
+
+    if (buys.length) {
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin-bottom:8px;letter-spacing:1px">🟢 BULLISH OUTLOOK (${buys.length})</div>`;
+      buys.forEach((r,i) => { html += foCard(r, i+1); });
+      html += `</div>`;
+    }
+    if (sells.length) {
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#ef5350;margin:12px 0 8px;letter-spacing:1px">🔴 BEARISH OUTLOOK (${sells.length})</div>`;
+      sells.forEach((r,i) => { html += foCard(r, i+1); });
+      html += `</div>`;
+    }
+    return html;
+  }
+
+  let activeHorizon = 0;
+
+  async function buildAndRender() {
+    c.innerHTML = tabBar() + horizBar(activeHorizon) + `<div id="reco-content" style="padding-bottom:16px">${spinner()}</div>`;
+
+    let content = '';
+    if (recoTab==='stocks')   content = await buildStocksTab(activeHorizon);
+    if (recoTab==='stockfo')  content = await buildFOTab(FO_RECO_STOCKS, 'TOP STOCK F&O PICKS', activeHorizon);
+    if (recoTab==='niftyfo')  content = await buildFOTab(NIFTY_FO, 'NIFTY F&O PICKS', activeHorizon);
+
+    const el = document.getElementById('reco-content');
+    if (el) el.innerHTML = content;
+  }
+
+  window.recoSwitch = async (tab) => {
+    recoTab = tab;
+    await buildAndRender();
+  };
+
+  window.recoHoriz = async (h) => {
+    activeHorizon = h;
+    await buildAndRender();
+  };
+
+  await buildAndRender();
 }
 
 // ── WATCHLIST ─────────────────────────────────────────────────────────────────
