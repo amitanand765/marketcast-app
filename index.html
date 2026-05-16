@@ -692,12 +692,41 @@ function drawIntradayChart(data, bullish) {
     data: {
       labels: data.map(d => d.time),
       datasets: [
-        {data: data.map(d=>d.upper), borderColor:'transparent', backgroundColor: color+'22', fill:'+1', pointRadius:0},
-        {data: data.map(d=>d.predicted), borderColor:color, borderWidth:2, fill:false, pointRadius:0, tension:0.3},
-        {data: data.map(d=>d.lower), borderColor:'transparent', backgroundColor:'transparent', fill:false, pointRadius:0},
+        {
+          label: 'Upper',
+          data: data.map(d => d.upper),
+          borderColor: 'transparent',
+          backgroundColor: color+'22',
+          fill: '+1',
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        },
+        {
+          label: 'Forecast',
+          data: data.map(d => d.predicted),
+          borderColor: color,
+          borderWidth: 2,
+          fill: false,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          pointBackgroundColor: color,
+          pointHoverBackgroundColor: '#fff',
+          pointHoverBorderColor: color,
+          pointHoverBorderWidth: 2,
+          tension: 0.3,
+        },
+        {
+          label: 'Lower',
+          data: data.map(d => d.lower),
+          borderColor: 'transparent',
+          backgroundColor: 'transparent',
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        },
       ]
     },
-    options: chartOptions()
+    options: chartOptions(),
   });
 }
 
@@ -709,27 +738,111 @@ function drawForecastChart(id, labels, data, color) {
     data: {
       labels,
       datasets: [
-        {data: data.upper, borderColor:'transparent', backgroundColor:color+'22', fill:'+1', pointRadius:0},
-        {data: data.predicted, borderColor:color, borderWidth:2, fill:false, pointRadius:0, tension:0.3},
-        {data: data.lower, borderColor:'transparent', backgroundColor:'transparent', fill:false, pointRadius:0},
+        {
+          label: 'Upper Band',
+          data: data.upper,
+          borderColor: 'transparent',
+          backgroundColor: color+'22',
+          fill: '+1',
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        },
+        {
+          label: 'Forecast',
+          data: data.predicted,
+          borderColor: color,
+          borderWidth: 2,
+          fill: false,
+          pointRadius: 3,
+          pointHoverRadius: 7,
+          pointBackgroundColor: color,
+          pointHoverBackgroundColor: '#fff',
+          pointHoverBorderColor: color,
+          pointHoverBorderWidth: 2,
+          tension: 0.3,
+        },
+        {
+          label: 'Lower Band',
+          data: data.lower,
+          borderColor: 'transparent',
+          backgroundColor: 'transparent',
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        },
       ]
     },
-    options: chartOptions()
+    options: chartOptions(),
   });
 }
 
-function chartOptions() {
+function chartOptions(yPrefix='₹') {
   return {
-    responsive:true, maintainAspectRatio:false, animation:false,
-    plugins:{legend:{display:false},tooltip:{
-      backgroundColor:'#132840',titleColor:'#7aa8cc',bodyColor:'#f0f8ff',
-      callbacks:{label:ctx=>`₹${Number(ctx.parsed.y).toLocaleString('en-IN',{minimumFractionDigits:2})}`}
-    }},
-    scales:{
-      x:{grid:{color:'#1b335430'},ticks:{color:'#3d6080',font:{size:9}},border:{display:false}},
-      y:{grid:{color:'#1b335430'},ticks:{color:'#3d6080',font:{size:9},callback:v=>`₹${(v/1000).toFixed(0)}k`},border:{display:false}}
-    }
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: {
+      mode: 'index',          // show all datasets at same x point
+      intersect: false,       // trigger even if not exactly on point
+    },
+    plugins: {
+      legend: {display:false},
+      tooltip: {
+        enabled: true,
+        mode: 'index',
+        intersect: false,
+        backgroundColor: '#132840',
+        titleColor: '#7aa8cc',
+        bodyColor: '#f0f8ff',
+        borderColor: '#1b3354',
+        borderWidth: 1,
+        padding: 10,
+        displayColors: false,
+        callbacks: {
+          title: ctx => ctx[0]?.label || '',
+          label: ctx => {
+            if (ctx.parsed.y == null) return null;
+            const label = ctx.dataset.label || '';
+            const val = `${yPrefix}${Number(ctx.parsed.y).toLocaleString('en-IN',{minimumFractionDigits:2})}`;
+            return label ? `${label}: ${val}` : val;
+          },
+          // Filter out null/zero values from tooltip
+          filter: item => item.parsed.y != null && item.parsed.y !== 0,
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: {color:'#1b335430'},
+        ticks: {color:'#3d6080', font:{size:9}},
+        border: {display:false}
+      },
+      y: {
+        grid: {color:'#1b335430'},
+        ticks: {
+          color:'#3d6080',
+          font:{size:9},
+          callback: v => v >= 1000 ? `₹${(v/1000).toFixed(1)}k` : `₹${v}`
+        },
+        border: {display:false}
+      }
+    },
+    // Enable touch events on mobile
+    events: ['mousemove','mouseout','click','touchstart','touchmove','touchend'],
   };
+}
+
+function forecastChartOptions(color) {
+  const base = chartOptions();
+  // Add vertical crosshair line on touch/hover
+  base.plugins.crosshair = {
+    line: {
+      color: color,
+      width: 1,
+      dashPattern: [5,5],
+    },
+  };
+  return base;
 }
 
 // ── F&O ──────────────────────────────────────────────────────────────────────
@@ -1109,55 +1222,38 @@ async function renderReco() {
 
   async function buildStocksTab(horizon=0) {
     const label = ['1 Day','7 Days','30 Days'][horizon];
-    const total = STOCKS.length;
 
-    // Show progress bar immediately
-    const progressHtml = `
+    // Show loading
+    document.getElementById('reco-content').innerHTML = `
       <div style="padding:16px">
-        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TOP STOCK PICKS — ${label.toUpperCase()} FORECAST</div>
-        <div style="font-size:12px;color:#7aa8cc;margin-bottom:16px">Scanning all ${total} stocks using 12 AI signals...</div>
-        <div style="background:#0c1e35;border:1px solid #1b3354;border-radius:12px;padding:16px;text-align:center">
-          <div style="font-size:13px;color:#4db6ff;margin-bottom:12px" id="reco-progress-text">Fetching stock data... 0/${total}</div>
-          <div style="height:8px;background:#132840;border-radius:4px;overflow:hidden;margin-bottom:8px">
-            <div id="reco-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#4db6ff,#00c9a7);border-radius:4px;transition:width 0.3s"></div>
+        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TOP STOCK PICKS — ${label.toUpperCase()}</div>
+        <div style="font-size:12px;color:#7aa8cc;margin-bottom:16px">Loading today's AI picks...</div>
+        <div style="background:#0c1e35;border:1px solid #1b3354;border-radius:12px;padding:24px;text-align:center">
+          <div style="font-size:32px;margin-bottom:12px">🎯</div>
+          <div style="font-size:13px;color:#4db6ff;margin-bottom:8px">Fetching daily picks...</div>
+          <div style="font-size:11px;color:#3d6080">Generated once at 5 AM IST • Same all day</div>
+          <div style="margin-top:12px;height:4px;background:#132840;border-radius:2px;overflow:hidden">
+            <div style="width:60%;height:100%;background:linear-gradient(90deg,#4db6ff,#00c9a7);border-radius:2px;animation:slide 1s infinite"></div>
           </div>
-          <div style="font-size:11px;color:#3d6080">This may take 2-3 minutes for all ${total} stocks</div>
-          <div style="font-size:10px;color:#3d6080;margin-top:4px">Each stock is evaluated on: ARIMA + RSI + MACD + Bollinger + Volume + Support/Resistance + News + Global Mood + Sector + FII + Options OI</div>
         </div>
-      </div>`;
+      </div>
+      <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}</style>`;
 
-    document.getElementById('reco-content').innerHTML = progressHtml;
+    // Fetch from daily-picks endpoint
+    const data = await apiFetch('/daily-picks');
 
-    const results = [];
-    const BATCH_SIZE = 5; // fetch 5 at a time to avoid overloading
-
-    for (let i = 0; i < STOCKS.length; i += BATCH_SIZE) {
-      const batch = STOCKS.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(s => apiFetch(`/stock/${s.symbol}`).then(d => ({...s, data:d})).catch(() => null))
-      );
-      results.push(...batchResults.filter(Boolean));
-
-      // Update progress
-      const done = Math.min(i + BATCH_SIZE, total);
-      const pct  = Math.round((done / total) * 100);
-      const bar  = document.getElementById('reco-progress-bar');
-      const txt  = document.getElementById('reco-progress-text');
-      if (bar) bar.style.width = pct + '%';
-      if (txt) txt.textContent = `Analyzing stocks... ${done}/${total} (${pct}%)`;
+    if (data.error) {
+      document.getElementById('reco-content').innerHTML = `
+        <div style="padding:16px;text-align:center;color:#ef5350">Error loading picks: ${data.error}</div>`;
+      return;
     }
 
-    // Sort by confidence — top 10 BUY, top 10 SELL
-    const valid = results.filter(r => r?.data && !r.data.error && r.data.recommendation);
-    const sorted = valid.sort((a,b) => (b.data.recommendation.confidence||0) - (a.data.recommendation.confidence||0));
-    const buys   = sorted.filter(r => r.data.recommendation.bullish).slice(0, 10);
-    const sells  = sorted.filter(r => !r.data.recommendation.bullish).slice(0, 10);
+    const buys  = data.buy_picks  || [];
+    const sells = data.sell_picks || [];
 
     function recoCard(r, rank) {
-      const rec  = r.data.recommendation;
-      const d    = r.data;
-      const sig  = d.signals || {};
-      const bull = rec.bullish;
+      const bull = r.bullish;
+      const sig  = r.signals || {};
       return `
         <div style="background:#0c1e35;border:1px solid ${bull?'#00c9a733':'#ef535033'};border-radius:12px;padding:14px;margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -1168,17 +1264,16 @@ async function renderReco() {
             </div>
             <div style="text-align:right">
               <div style="font-size:16px;font-weight:800;color:${bull?'#00c9a7':'#ef5350'}">${bull?'▲ BUY':'▼ SELL'}</div>
-              <div style="font-size:10px;color:#3d6080">${rec.confidence}% confidence</div>
+              <div style="font-size:10px;color:#3d6080">${r.confidence}% confidence</div>
             </div>
           </div>
 
-          <!-- Price boxes -->
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:10px">
             ${[
-              ['CMP',      `₹${fmt(d.price)}`,       '#f0f8ff'],
-              ['Entry',    `₹${fmt(rec.entry)}`,     '#4db6ff'],
-              ['Target',   `₹${fmt(rec.target)}`,    '#00c9a7'],
-              ['Stop Loss',`₹${fmt(rec.stop_loss)}`, '#ef5350'],
+              ['CMP',      `₹${fmt(r.price)}`,       '#f0f8ff'],
+              ['Entry',    `₹${fmt(r.entry)}`,       '#4db6ff'],
+              ['Target',   `₹${fmt(r.target)}`,      '#00c9a7'],
+              ['Stop Loss',`₹${fmt(r.stop_loss)}`,   '#ef5350'],
             ].map(([l,v,col])=>`
               <div style="background:#132840;border-radius:8px;padding:8px 6px;text-align:center">
                 <div style="font-size:8px;color:#3d6080;margin-bottom:3px">${l}</div>
@@ -1186,17 +1281,16 @@ async function renderReco() {
               </div>`).join('')}
           </div>
 
-          <!-- Mini signals row -->
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
             ${[
-              ['RSI',    d.technicals?.rsi?.toFixed(0),       d.technicals?.rsi<70&&d.technicals?.rsi>30],
-              ['MACD',   d.technicals?.macd>d.technicals?.macd_signal?'▲':'▼', d.technicals?.macd>d.technicals?.macd_signal],
-              ['Vol',    `${d.technicals?.volume_ratio?.toFixed(1)}x`,          d.technicals?.volume_ratio>1],
-              ['News',   sig.news_sentiment>0.1?'+'+(sig.news_sentiment?.toFixed(1)):sig.news_sentiment?.toFixed(1)||'0', sig.news_sentiment>0],
-              ['Global', sig.global_mood,                                        sig.global_avg_pct>=0],
+              ['RSI',    sig.rsi?.toFixed(0),                              sig.rsi<70&&sig.rsi>30],
+              ['MACD',   sig.macd_bullish?'▲':'▼',                        sig.macd_bullish],
+              ['Vol',    `${sig.volume_ratio?.toFixed(1)}x`,               sig.volume_ratio>1],
+              ['News',   sig.news_sentiment>0.1?'+'+sig.news_sentiment?.toFixed(1):sig.news_sentiment?.toFixed(1)||'0', sig.news_sentiment>0],
+              ['Global', sig.global_mood,                                  sig.global_avg_pct>=0],
               ['Gift',   `${sig.gift_nifty_pct>0?'+':''}${sig.gift_nifty_pct?.toFixed(1)}%`, sig.gift_nifty_pct>=0],
-              ['FII',    sig.fii_sentiment||'—',                                 sig.fii_sentiment==='Buying'],
-              ['PCR',    sig.options_pcr?.toFixed(2)||'—',                       sig.options_signal==='Bullish'],
+              ['FII',    sig.fii_sentiment||'—',                           sig.fii_sentiment==='Buying'],
+              ['PCR',    sig.options_pcr?.toFixed(2)||'—',                 sig.options_signal==='Bullish'],
             ].map(([l,v,bull])=>`
               <div style="background:#132840;border-radius:6px;padding:3px 7px;display:flex;gap:3px;align-items:center">
                 <span style="font-size:8px;color:#3d6080">${l}:</span>
@@ -1204,30 +1298,60 @@ async function renderReco() {
               </div>`).join('')}
           </div>
 
-          <!-- Confidence bar -->
           <div style="height:4px;background:#1b3354;border-radius:2px;overflow:hidden">
-            <div style="width:${rec.confidence}%;height:100%;background:${bull?'#00c9a7':'#ef5350'};border-radius:2px"></div>
+            <div style="width:${r.confidence}%;height:100%;background:${bull?'#00c9a7':'#ef5350'};border-radius:2px"></div>
           </div>
         </div>`;
     }
 
     let html = `
       <div style="padding:12px 16px 6px">
-        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TOP STOCK PICKS — ${label.toUpperCase()} FORECAST</div>
-        <div style="font-size:12px;color:#7aa8cc">Scanned ${valid.length}/${total} stocks • Ranked by AI confidence score</div>
+        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TODAY'S AI STOCK PICKS</div>
+        <div style="font-size:12px;color:#7aa8cc">Scanned ${data.total_scanned} stocks • ${data.generated_at}</div>
+      </div>
+
+      <!-- Market mood banner -->
+      <div style="margin:8px 16px;background:#132840;border:1px solid #1b3354;border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;gap:16px">
+          <div>
+            <div style="font-size:9px;color:#3d6080">MARKET MOOD</div>
+            <div style="font-size:12px;font-weight:700;color:${data.market_mood==='Bullish'?'#00c9a7':data.market_mood==='Bearish'?'#ef5350':'#7aa8cc'}">${data.market_mood}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:#3d6080">GIFT NIFTY</div>
+            <div style="font-size:12px;font-weight:700;color:${data.gift_nifty?.includes('Bull')?'#00c9a7':data.gift_nifty?.includes('Bear')?'#ef5350':'#7aa8cc'}">${data.gift_nifty}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:#3d6080">FII</div>
+            <div style="font-size:12px;font-weight:700;color:${data.fii_activity==='Buying'?'#00c9a7':data.fii_activity==='Selling'?'#ef5350':'#7aa8cc'}">${data.fii_activity}</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:#3d6080">NEXT REFRESH</div>
+          <div style="font-size:9px;color:#4db6ff">Tomorrow 5 AM</div>
+        </div>
       </div>`;
 
     if (buys.length) {
-      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin-bottom:8px;letter-spacing:1px;margin-top:8px">🟢 TOP BUY PICKS (${buys.length})</div>`;
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin:10px 0 8px;letter-spacing:1px">🟢 TOP BUY PICKS (${buys.length})</div>`;
       buys.forEach((r,i) => { html += recoCard(r, i+1); });
       html += `</div>`;
     }
     if (sells.length) {
-      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#ef5350;margin:12px 0 8px;letter-spacing:1px">🔴 TOP SELL / AVOID (${sells.length})</div>`;
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#ef5350;margin:12px 0 8px;letter-spacing:1px">🔴 TOP SELL/AVOID (${sells.length})</div>`;
       sells.forEach((r,i) => { html += recoCard(r, i+1); });
       html += `</div>`;
     }
-    return html;
+
+    // From cache indicator
+    html += `
+      <div style="padding:12px 16px;text-align:center">
+        <div style="font-size:10px;color:#3d6080">
+          ${data.from_cache ? '⚡ Served from cache — instant!' : '🔄 Freshly generated today'}
+        </div>
+      </div>`;
+
+    document.getElementById('reco-content').innerHTML = html;
   }
 
   async function buildFOTab(instruments, title, horizon=0) {
@@ -1316,15 +1440,11 @@ async function renderReco() {
   let activeHorizon = 0;
 
   async function buildAndRender() {
-    c.innerHTML = tabBar() + horizBar(activeHorizon) + `<div id="reco-content" style="padding-bottom:16px">${spinner()}</div>`;
+    c.innerHTML = tabBar() + (recoTab!=='stocks' ? horizBar(activeHorizon) : '') + `<div id="reco-content" style="padding-bottom:16px">${spinner()}</div>`;
 
-    let content = '';
-    if (recoTab==='stocks')   content = await buildStocksTab(activeHorizon);
-    if (recoTab==='stockfo')  content = await buildFOTab(FO_RECO_STOCKS, 'TOP STOCK F&O PICKS', activeHorizon);
-    if (recoTab==='niftyfo')  content = await buildFOTab(NIFTY_FO, 'NIFTY F&O PICKS', activeHorizon);
-
-    const el = document.getElementById('reco-content');
-    if (el) el.innerHTML = content;
+    if (recoTab==='stocks')   await buildStocksTab(activeHorizon);
+    if (recoTab==='stockfo')  { const html = await buildFOTab(FO_RECO_STOCKS, 'TOP STOCK F&O PICKS', activeHorizon); document.getElementById('reco-content').innerHTML = html; }
+    if (recoTab==='niftyfo')  { const html = await buildFOTab(NIFTY_FO, 'NIFTY F&O PICKS', activeHorizon); document.getElementById('reco-content').innerHTML = html; }
   }
 
   window.recoSwitch = async (tab) => {
