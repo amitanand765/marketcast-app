@@ -1,0 +1,22 @@
+{
+  "name": "MarketCast",
+  "short_name": "MarketCast",
+  "description": "AI-powered Indian stock market forecasting app",
+  "start_url": "/marketcast-app/",
+  "display": "standalone",
+  "background_color": "#060e1c",
+  "theme_color": "#060e1c",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192/060e1c/4db6ff?text=MC",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512/060e1c/4db6ff?text=MC",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
