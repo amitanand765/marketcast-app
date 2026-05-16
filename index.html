@@ -10,6 +10,7 @@
 <title>MarketCast</title>
 <link rel="manifest" href="manifest.json"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="stocks.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   body{background:#060e1c;color:#f0f8ff;font-family:'Segoe UI',system-ui,sans-serif;max-width:430px;margin:0 auto;min-height:100vh;overflow-x:hidden}
@@ -191,29 +192,6 @@ const FO_INSTRUMENTS = [
   {label:'BEL',name:'Bharat Electronics',price:234,atm:235,lot:4500,type:'stock'},
 ];
 
-const STOCKS = [
-  {name:'Reliance Industries',symbol:'RELIANCE',sector:'Energy',mcap:'19.2L Cr'},
-  {name:'TCS',symbol:'TCS',sector:'IT',mcap:'14.1L Cr'},
-  {name:'HDFC Bank',symbol:'HDFCBANK',sector:'Banking',mcap:'12.4L Cr'},
-  {name:'Infosys',symbol:'INFY',sector:'IT',mcap:'6.1L Cr'},
-  {name:'ICICI Bank',symbol:'ICICIBANK',sector:'Banking',mcap:'7.6L Cr'},
-  {name:'Bharti Airtel',symbol:'BHARTIARTL',sector:'Telecom',mcap:'7.2L Cr'},
-  {name:'SBI',symbol:'SBIN',sector:'Banking',mcap:'6.5L Cr'},
-  {name:'Kotak Mahindra Bank',symbol:'KOTAKBANK',sector:'Banking',mcap:'3.5L Cr'},
-  {name:'Wipro',symbol:'WIPRO',sector:'IT',mcap:'2.4L Cr'},
-  {name:'L&T',symbol:'LT',sector:'Infra',mcap:'4.7L Cr'},
-  {name:'HUL',symbol:'HINDUNILVR',sector:'FMCG',mcap:'5.7L Cr'},
-  {name:'Sun Pharma',symbol:'SUNPHARMA',sector:'Pharma',mcap:'3.7L Cr'},
-  {name:'Asian Paints',symbol:'ASIANPAINT',sector:'FMCG',mcap:'2.7L Cr'},
-  {name:'Maruti Suzuki',symbol:'MARUTI',sector:'Auto',mcap:'3.9L Cr'},
-  {name:'Bajaj Finance',symbol:'BAJFINANCE',sector:'NBFC',mcap:'4.3L Cr'},
-  {name:'Titan',symbol:'TITAN',sector:'Consumer',mcap:'3.0L Cr'},
-  {name:'ONGC',symbol:'ONGC',sector:'Energy',mcap:'2.9L Cr'},
-  {name:'Power Grid',symbol:'POWERGRID',sector:'Utilities',mcap:'2.7L Cr'},
-  {name:'Adani Ports',symbol:'ADANIPORTS',sector:'Infra',mcap:'2.6L Cr'},
-  {name:'Nestle India',symbol:'NESTLEIND',sector:'FMCG',mcap:'2.2L Cr'},
-];
-
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 const fmt  = (n) => Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtN = (n) => Number(n).toLocaleString('en-IN');
@@ -360,20 +338,30 @@ async function renderHome() {
 // ── SEARCH ───────────────────────────────────────────────────────────────────
 function renderSearch() {
   const c = document.getElementById('content');
+  const sectors = ['All','IT','Banking','Energy','Auto','FMCG','Pharma','NBFC','Infra','Utilities','Metals','Defence','Tech','Cement','Healthcare','Chemicals','Real Estate'];
+
   let html = `
     <div style="padding:16px">
       <div class="search-box">
         <span style="color:#3d6080;font-size:16px">🔍</span>
-        <input class="search-input" id="search-input" placeholder="Search stocks e.g. TCS, Reliance…" oninput="filterStocks(this.value)"/>
+        <input class="search-input" id="search-input" placeholder="Search 200+ stocks e.g. TCS, Reliance…" oninput="filterStocks(this.value)"/>
         <button onclick="document.getElementById('search-input').value='';filterStocks('')" style="background:none;border:none;color:#3d6080;cursor:pointer;font-size:16px">✕</button>
       </div>
-      <div id="stock-list">`;
-  for (const s of STOCKS) {
-    const inW = watchlist.includes(s.symbol);
-    html += stockRowHtml(s, inW);
-  }
-  html += `</div></div>`;
+      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:12px">
+        ${sectors.map(s=>`<button onclick="filterBySector('${s}')" id="sector-${s.replace(' ','-')}" class="news-tag ${s==='All'?'active':''}">${s}</button>`).join('')}
+      </div>
+      <div style="font-size:11px;color:#3d6080;margin-bottom:10px" id="stock-count">${STOCKS.length} stocks</div>
+      <div id="stock-list">
+        ${STOCKS.map(s=>stockRowHtml(s,watchlist.includes(s.symbol))).join('')}
+      </div>
+    </div>`;
   c.innerHTML = html;
+
+  window.filterBySector = (sector) => {
+    document.querySelectorAll('[id^="sector-"]').forEach(b=>b.classList.remove('active'));
+    document.getElementById('sector-'+sector.replace(' ','-'))?.classList.add('active');
+    filterStocks(document.getElementById('search-input')?.value||'', sector);
+  };
 }
 
 function stockRowHtml(s, inW) {
@@ -391,14 +379,17 @@ function stockRowHtml(s, inW) {
     </div>`;
 }
 
-function filterStocks(q) {
+function filterStocks(q, sector='All') {
   const list = document.getElementById('stock-list');
+  const count = document.getElementById('stock-count');
   if (!list) return;
-  const filtered = q ? STOCKS.filter(s =>
-    s.name.toLowerCase().includes(q.toLowerCase()) ||
-    s.symbol.toLowerCase().includes(q.toLowerCase())
-  ) : STOCKS;
-  list.innerHTML = filtered.map(s => stockRowHtml(s, watchlist.includes(s.symbol))).join('');
+  let filtered = STOCKS;
+  if (q) filtered = filtered.filter(s=>s.name.toLowerCase().includes(q.toLowerCase())||s.symbol.toLowerCase().includes(q.toLowerCase()));
+  if (sector && sector!=='All') filtered = filtered.filter(s=>s.sector===sector);
+  if (count) count.textContent = `${filtered.length} stocks`;
+  list.innerHTML = filtered.length
+    ? filtered.map(s=>stockRowHtml(s,watchlist.includes(s.symbol))).join('')
+    : `<div style="text-align:center;padding:40px;color:#3d6080">No stocks found</div>`;
 }
 
 // ── STOCK DETAIL ─────────────────────────────────────────────────────────────
