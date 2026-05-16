@@ -596,20 +596,73 @@ async function renderStockDetail() {
         </div>
       </div>
 
-      <!-- Reasons -->
+      <!-- Signals Dashboard -->
       <div class="card" style="margin-top:12px">
-        <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">WHY THIS RECOMMENDATION</div>
-        ${[
-          [bullish?'✅':'🔴', `ARIMA model predicts ${bullish?'upward':'downward'} movement`],
-          [bullish?'✅':'🔴', `MACD ${tech.macd>tech.macd_signal?'bullish crossover':'bearish crossover'} detected`],
-          [bullish?'✅':'🔴', `RSI at ${tech.rsi?.toFixed(0)} — ${tech.rsi>70?'overbought, caution':tech.rsi<30?'oversold, good entry':'neutral zone'}`],
-          [bullish?'✅':'🔴', `Price ${d.price>tech.sma20?'above':'below'} SMA 20 — ${d.price>tech.sma20?'bullish':'bearish'} trend`],
-          ['📰', `News sentiment factored into forecast`],
-        ].map(([icon,txt],i)=>`
-          <div style="display:flex;gap:8px;padding:6px 0;border-bottom:${i<4?'1px solid #1b335415':'none'}">
-            <span style="font-size:13px;flex-shrink:0">${icon}</span>
-            <span style="font-size:12px;color:#7aa8cc;line-height:1.5">${txt}</span>
-          </div>`).join('')}
+        <div style="font-size:10px;color:#3d6080;margin-bottom:12px;letter-spacing:1px">📊 AI SIGNALS DASHBOARD</div>
+
+        ${(() => {
+          const sig = d.signals || {};
+          const tech = d.technicals || {};
+          const rec = d.recommendation || {};
+
+          function sigRow(icon, label, value, bullSig, note='') {
+            const col = bullSig === null ? '#7aa8cc' : bullSig ? '#00c9a7' : '#ef5350';
+            const arrow = bullSig === null ? '—' : bullSig ? '▲' : '▼';
+            return `
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #1b335415">
+                <span style="font-size:16px;width:24px;text-align:center">${icon}</span>
+                <div style="flex:1">
+                  <div style="font-size:12px;color:#7aa8cc">${label}</div>
+                  ${note?`<div style="font-size:10px;color:#3d6080">${note}</div>`:''}
+                </div>
+                <div style="text-align:right">
+                  <span style="color:${col};font-size:12px;font-weight:700">${arrow} ${value}</span>
+                </div>
+              </div>`;
+          }
+
+          const rows = [
+            ['🤖', 'ARIMA Forecast',      bullish?'Bullish':'Bearish',                          bullish,              `Predicts ${bullish?'rise':'fall'} in price`],
+            ['📈', 'MACD Signal',          tech.macd>tech.macd_signal?'Bullish':'Bearish',       tech.macd>tech.macd_signal, `MACD: ${tech.macd?.toFixed(2)} | Signal: ${tech.macd_signal?.toFixed(2)}`],
+            ['📊', 'RSI',                  `${tech.rsi?.toFixed(0)} — ${tech.rsi>70?'Overbought':tech.rsi<30?'Oversold':'Neutral'}`, tech.rsi<70&&tech.rsi>30, `14-day Relative Strength Index`],
+            ['📉', 'Bollinger Bands',      tech.bb_upper&&d.price<tech.bb_upper*0.98?'Room to grow':'Near upper band', d.price<tech.bb_upper*0.98, `Width: ${tech.bb_width?.toFixed(1)}%`],
+            ['📦', 'Volume',               `${tech.volume_ratio?.toFixed(1)}x avg`,              tech.volume_ratio>1.0, `${tech.volume_ratio>1.5?'Strong':'Normal'} volume ${tech.volume_ratio>1?'confirms':'weakens'} signal`],
+            ['🔴', 'Resistance/Support',   tech.broke_resistance?'Broke Resistance! 🚀':tech.broke_support?'Broke Support! 📉':tech.near_resistance?'Near Resistance':tech.near_support?'Near Support':'In Range', tech.broke_resistance||(!tech.near_resistance&&!tech.broke_support), `R: ₹${fmt(tech.resistance)} | S: ₹${fmt(tech.support)}`],
+            ['📰', 'News Sentiment',       sig.news_sentiment>0.1?`Positive (+${sig.news_sentiment})`:sig.news_sentiment<-0.1?`Negative (${sig.news_sentiment})`:'Neutral', sig.news_sentiment>0, `From 8+ financial news sources`],
+            ['🌍', 'Global Market Mood',   `${sig.global_mood} (${sig.global_avg_pct>0?'+':''}${sig.global_avg_pct?.toFixed(2)}%)`, sig.global_avg_pct>=0, `14 global indices averaged`],
+            ['🏭', 'Sector Momentum',      `${sig.sector_momentum} (${sig.sector_pct>0?'+':''}${sig.sector_pct?.toFixed(2)}%)`, sig.sector_pct>=0, `${d.sector||'—'} sector 5-day performance`],
+            ['💼', 'FII/DII Activity',     sig.fii_sentiment||'Neutral',                         sig.fii_sentiment==='Buying', `Approximated from Nifty volume & price trend`],
+            ['⚖️', 'Options OI (PCR)',     `${sig.options_pcr?.toFixed(2)} — ${sig.options_signal}`, sig.options_signal==='Bullish'||sig.options_pcr>1, `PCR>1.2 Bullish | PCR<0.7 Bearish`],
+          ];
+
+          return rows.map(([icon,label,val,bull,note]) => sigRow(icon,label,val,bull,note)).join('');
+        })()}
+
+        <!-- Confidence meter -->
+        <div style="margin-top:14px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11px;color:#3d6080">OVERALL CONFIDENCE</span>
+            <span style="font-size:13px;font-weight:700;color:${bullish?'#00c9a7':'#ef5350'}">${rec.confidence}%</span>
+          </div>
+          <div style="height:8px;background:#1b3354;border-radius:4px;overflow:hidden">
+            <div style="width:${rec.confidence}%;height:100%;background:linear-gradient(90deg,${bullish?'#00c9a7':'#ef5350'},${bullish?'#4db6ff':'#ffd166'});border-radius:4px;transition:width 0.5s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px">
+            <span style="font-size:9px;color:#3d6080">40% (Weak)</span>
+            <span style="font-size:9px;color:#3d6080">97% (Strong)</span>
+          </div>
+        </div>
+
+        <!-- Dynamic reasons from backend -->
+        ${rec.reasons?.length ? `
+          <div style="margin-top:14px;background:#060e1c;border-radius:10px;padding:12px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">KEY REASONS</div>
+            ${rec.reasons.map((r,i)=>`
+              <div style="display:flex;gap:8px;padding:5px 0;border-bottom:${i<rec.reasons.length-1?'1px solid #1b335415':'none'}">
+                <span style="font-size:11px;flex-shrink:0">${i%2===0?'•':'◦'}</span>
+                <span style="font-size:11px;color:#7aa8cc;line-height:1.5">${r}</span>
+              </div>`).join('')}
+          </div>` : ''}
       </div>
     </div>`;
 
