@@ -896,6 +896,7 @@ async function renderFO() {
   let foSearchQ = '';
   let foTab = 'forecast';
   let showPicker = false;
+  let foData = null;
 
   function getFiltered() {
     const q = foSearchQ.trim().toLowerCase();
@@ -903,26 +904,11 @@ async function renderFO() {
     return FO_INSTRUMENTS.filter(x => x.label.toLowerCase().includes(q) || x.name.toLowerCase().includes(q));
   }
 
-  async function buildFO() {
-    // Fetch real F&O data
-    const data = await apiFetch(`/fo/${foInstrument.label}`);
-    const price = data.price || foInstrument.price;
-    const bullish = data.bullish !== undefined ? data.bullish : true;
-    const fc = data.forecast || {};
-    const intraday = fc.intraday || [];
-    const day7 = fc.day7 || {dates:[],data:{predicted:[],upper:[],lower:[]}};
-    const day30 = fc.day30 || {dates:[],data:{predicted:[],upper:[],lower:[]}};
-    const levels = data.levels || {};
-    const strategy = data.strategy || {};
-    const expMove = data.expected_move || 0;
-    const atm = data.atm || foInstrument.atm;
-
+  function pickerHtml() {
     const filtered = getFiltered();
     const filteredIdx = filtered.filter(x=>x.type==='index');
     const filteredStk = filtered.filter(x=>x.type==='stock');
-
-    c.innerHTML = `
-      <!-- Instrument Picker -->
+    return `
       <div style="padding:10px 16px;border-bottom:1px solid #1b3354;background:#060e1c">
         <button class="picker-btn" onclick="togglePicker()" id="picker-trigger">
           <div style="text-align:left">
@@ -957,13 +943,204 @@ async function renderFO() {
           </div>
         </div>
       </div>
-
-      <!-- Tabs -->
       <div class="tabs" style="top:57px">
         <button class="tab-btn ${foTab==='futures'?'active':''}" onclick="foSwitchTab('futures')">Futures</button>
         <button class="tab-btn ${foTab==='options'?'active':''}" onclick="foSwitchTab('options')">Options</button>
         <button class="tab-btn ${foTab==='forecast'?'active':''}" onclick="foSwitchTab('forecast')">🔮 Forecast</button>
-      </div>
+      </div>`;
+  }
+
+  // ── SHOW UI IMMEDIATELY ──
+  c.innerHTML = pickerHtml() + `<div id="fo-body">${spinner()}<div style="text-align:center;padding:8px;font-size:12px;color:#3d6080">Loading ${foInstrument.label} data...</div></div>`;
+
+  // Setup controls immediately
+  window.togglePicker = () => {
+    showPicker = !showPicker;
+    const dd = document.getElementById('picker-dropdown');
+    const arr = document.getElementById('picker-arrow');
+    if (dd) dd.style.display = showPicker ? 'block' : 'none';
+    if (arr) arr.style.transform = showPicker ? 'rotate(180deg)' : 'none';
+  };
+
+  window.foSearchChanged = (q) => {
+    foSearchQ = q;
+    const list = document.getElementById('picker-list');
+    if (!list) return;
+    const filtered = getFiltered();
+    const fi = filtered.filter(x=>x.type==='index');
+    const fs = filtered.filter(x=>x.type==='stock');
+    list.innerHTML = `
+      ${fi.length?`<div class="picker-section">INDICES (${fi.length})</div>`:''}
+      ${fi.map(x=>`<button class="picker-item" onclick="selectFOInstrument('${x.label}')" style="color:${foInstrument.label===x.label?'#4db6ff':'#f0f8ff'}"><div style="text-align:left"><div style="font-size:13px;font-weight:700">${x.label}</div><div style="font-size:10px;color:#3d6080">${x.name}</div></div><div style="text-align:right"><div style="font-size:13px;font-weight:600">${fmtN(x.price)}</div><div style="font-size:9px;color:#3d6080">Lot: ${x.lot}</div></div></button>`).join('')}
+      ${fs.length?`<div class="picker-section">STOCK OPTIONS (${fs.length})</div>`:''}
+      ${fs.map(x=>`<button class="picker-item" onclick="selectFOInstrument('${x.label}')" style="color:${foInstrument.label===x.label?'#4db6ff':'#f0f8ff'}"><div style="text-align:left"><div style="font-size:13px;font-weight:700">${x.label}</div><div style="font-size:10px;color:#3d6080">${x.name}</div></div><div style="text-align:right"><div style="font-size:13px;font-weight:600">₹${fmtN(x.price)}</div><div style="font-size:9px;color:#3d6080">Lot: ${x.lot}</div></div></button>`).join('')}`;
+  };
+
+  window.selectFOInstrument = (label) => {
+    foInstrument = FO_INSTRUMENTS.find(x=>x.label===label) || foInstrument;
+    showPicker = false; foSearchQ = ''; foData = null;
+    renderFO();
+  };
+
+  window.foSwitchTab = (tab) => {
+    foTab = tab;
+    ['futures','options','forecast'].forEach(t => {
+      const btn = document.querySelector(`[onclick="foSwitchTab('${t}')"]`);
+      if (btn) btn.classList.toggle('active', t===tab);
+    });
+    renderFOBody();
+  };
+
+  function renderFOBody() {
+    const body = document.getElementById('fo-body');
+    if (!body || !foData) return;
+    const data    = foData;
+    const price   = data.price   || foInstrument.price;
+    const bullish = data.bullish !== undefined ? data.bullish : true;
+    const fc      = data.forecast || {};
+    const intraday= fc.intraday  || [];
+    const day7    = fc.day7      || {dates:[],data:{predicted:[],upper:[],lower:[]}};
+    const day30   = fc.day30     || {dates:[],data:{predicted:[],upper:[],lower:[]}};
+    const levels  = data.levels  || {};
+    const strategy= data.strategy|| {};
+    const expMove = data.expected_move || 0;
+    const atm     = data.atm     || foInstrument.atm;
+    const step    = 100;
+
+    if (foTab === 'futures') {
+      body.innerHTML = `
+        <div style="padding:16px">
+          <div class="card" style="margin-bottom:14px">
+            <div style="font-size:11px;color:#3d6080;margin-bottom:4px">${foInstrument.label} FUTURES • Exp: 29 May 2026</div>
+            <div style="font-size:30px;font-weight:700">${fmtN(price)}</div>
+            ${chgHtml(data.change||0, data.pct||0, 13)}
+            <div style="display:flex;gap:20px;margin-top:12px">
+              ${[['OI','1.23 Cr'],['Lot Size',foInstrument.lot],['Prev Close',fmtN(price*0.9915)]].map(([l,v])=>`
+                <div><div style="font-size:10px;color:#3d6080">${l}</div><div style="font-size:13px;font-weight:600">${v}</div></div>`).join('')}
+            </div>
+          </div>
+          <div style="display:flex;gap:10px">
+            ${[['PCR','0.87','Bearish Bias','#ef5350'],['Max Pain',atm-100,'Strike Level','#ffd166'],['IV %ile','34%','Low Vol','#00c9a7']].map(([l,v,s,col])=>`
+              <div style="flex:1;background:#0c1e35;border:1px solid #1b3354;border-radius:10px;padding:12px 8px;text-align:center">
+                <div style="font-size:9px;color:#3d6080;margin-bottom:4px">${l}</div>
+                <div style="font-size:17px;font-weight:700;color:${col}">${v}</div>
+                <div style="font-size:9px;color:#3d6080;margin-top:2px">${s}</div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    } else if (foTab === 'options') {
+      const baseStrike = Math.round(price/100)*100;
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 80px 1fr;padding:8px 14px;border-bottom:1px solid #1b3354;background:#060e1c;position:sticky;top:110px">
+          <div style="font-size:10px;color:#00c9a7;font-weight:600">CALL (CE)</div>
+          <div style="font-size:10px;color:#3d6080;text-align:center">STRIKE</div>
+          <div style="font-size:10px;color:#ef5350;font-weight:600;text-align:right">PUT (PE)</div>
+        </div>
+        ${Array.from({length:11},(_,i)=>{
+          const strike = baseStrike - 500 + i*100;
+          const isATM  = Math.abs(strike-price) < 60;
+          const ceP    = Math.max(0.5,(price-strike+50)+Math.random()*60).toFixed(2);
+          const peP    = Math.max(0.5,(strike-price+50)+Math.random()*60).toFixed(2);
+          return `
+            <div style="display:grid;grid-template-columns:1fr 80px 1fr;padding:9px 14px;background:${isATM?'#132840':'transparent'};border-bottom:1px solid #1b335418">
+              <div><div style="font-size:13px;font-weight:600;color:#00c9a7">${ceP}</div><div style="font-size:9px;color:#3d6080">OI: ${Math.floor(Math.random()*50+10)}K</div></div>
+              <div style="display:flex;align-items:center;justify-content:center">
+                <span style="font-size:${isATM?13:11}px;font-weight:${isATM?700:400};color:${isATM?'#ffd166':'#7aa8cc'};background:${isATM?'#ffd16622':'none'};padding:${isATM?'2px 6px':0};border-radius:6px">${strike}</span>
+              </div>
+              <div style="text-align:right"><div style="font-size:13px;font-weight:600;color:#ef5350">${peP}</div><div style="font-size:9px;color:#3d6080">OI: ${Math.floor(Math.random()*50+10)}K</div></div>
+            </div>`;
+        }).join('')}`;
+    } else {
+      // Forecast tab
+      body.innerHTML = `
+        <div style="padding:16px">
+          <div style="background:${bullish?'#00c9a718':'#ef535018'};border:1px solid ${bullish?'#00c9a755':'#ef535055'};border-radius:12px;padding:14px;margin-bottom:14px;text-align:center">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:2px;letter-spacing:1px">${foInstrument.label} FORECAST</div>
+            <div style="font-size:26px;font-weight:700;color:${bullish?'#00c9a7':'#ef5350'}">${bullish?'▲ BULLISH':'▼ BEARISH'}</div>
+            <div style="font-size:11px;color:#7aa8cc;margin-top:4px">Expected move: ${expMove>0?'+':''}${expMove.toFixed(0)} pts</div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">1-DAY INTRADAY FORECAST</div>
+            <div class="card" style="padding:14px 8px 8px"><div class="chart-wrap"><canvas id="fo-chart-intraday" height="150"></canvas></div></div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">7-DAY FORECAST</div>
+            <div class="card" style="padding:14px 8px 8px"><div class="chart-wrap"><canvas id="fo-chart-7d" height="130"></canvas></div></div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">30-DAY FORECAST</div>
+            <div class="card" style="padding:14px 8px 8px"><div class="chart-wrap"><canvas id="fo-chart-30d" height="130"></canvas></div></div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">KEY LEVELS</div>
+            ${[
+              ['Resistance 2',(levels.resistance2||price*1.04).toFixed(0),'#ef5350'],
+              ['Resistance 1',(levels.resistance1||price*1.02).toFixed(0),'#ef5350'],
+              ['Current',     price.toFixed(2),                           '#4db6ff'],
+              ['Support 1',  (levels.support1||price*0.98).toFixed(0),   '#00c9a7'],
+              ['Support 2',  (levels.support2||price*0.96).toFixed(0),   '#00c9a7'],
+            ].map(([l,v,col])=>`
+              <div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #1b335420">
+                <span style="font-size:12px;color:${col}">${l}</span>
+                <span style="font-size:12px;font-weight:600">${v}</span>
+              </div>`).join('')}
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <div style="font-size:10px;color:#3d6080;margin-bottom:10px;letter-spacing:1px">SUGGESTED OPTIONS STRATEGY</div>
+            <div style="background:${bullish?'#00c9a718':'#ef535018'};border-radius:8px;padding:10px 14px;margin-bottom:12px">
+              <div style="font-size:14px;font-weight:700;color:${bullish?'#00c9a7':'#ef5350'}">${strategy.action||'—'}</div>
+            </div>
+            ${[
+              ['Strike',    `${atm} ATM`,              '#ffd166'],
+              ['Target',    `${strategy.target||atm+200}`,'#00c9a7'],
+              ['Stop Loss', `${strategy.stop_loss||atm-200}`,'#ef5350'],
+              ['Expiry',    '29 May 2026',              '#7aa8cc'],
+              ['Lot Size',  `${foInstrument.lot} units`,'#7aa8cc'],
+            ].map(([l,v,col])=>`
+              <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1b335415">
+                <span style="font-size:12px;color:#7aa8cc">${l}</span>
+                <span style="font-size:12px;font-weight:600;color:${col}">${v}</span>
+              </div>`).join('')}
+          </div>
+        </div>`;
+      setTimeout(() => {
+        if (intraday.length) {
+          const color = bullish?'#00c9a7':'#ef5350';
+          const elI = document.getElementById('fo-chart-intraday');
+          if (elI) new Chart(elI,{type:'line',data:{labels:intraday.map(d=>d.time),datasets:[
+            {data:intraday.map(d=>d.upper),borderColor:'transparent',backgroundColor:color+'22',fill:'+1',pointRadius:0},
+            {data:intraday.map(d=>d.predicted),borderColor:color,borderWidth:2,fill:false,pointRadius:3,pointHoverRadius:6,pointBackgroundColor:color,tension:0.3,label:'Forecast'},
+            {data:intraday.map(d=>d.lower),borderColor:'transparent',fill:false,pointRadius:0},
+          ]},options:chartOptions()});
+        }
+        if (day7.dates.length) {
+          const el7 = document.getElementById('fo-chart-7d');
+          if (el7) new Chart(el7,{type:'line',data:{labels:day7.dates,datasets:[
+            {data:day7.data.upper,borderColor:'transparent',backgroundColor:'#4db6ff22',fill:'+1',pointRadius:0},
+            {data:day7.data.predicted,borderColor:'#4db6ff',borderWidth:2,fill:false,pointRadius:3,pointHoverRadius:6,pointBackgroundColor:'#4db6ff',tension:0.3,label:'Forecast'},
+            {data:day7.data.lower,borderColor:'transparent',fill:false,pointRadius:0},
+          ]},options:chartOptions()});
+        }
+        if (day30.dates.length) {
+          const el30 = document.getElementById('fo-chart-30d');
+          if (el30) new Chart(el30,{type:'line',data:{labels:day30.dates,datasets:[
+            {data:day30.data.upper,borderColor:'transparent',backgroundColor:'#ffd16622',fill:'+1',pointRadius:0},
+            {data:day30.data.predicted,borderColor:'#ffd166',borderWidth:2,fill:false,pointRadius:3,pointHoverRadius:6,pointBackgroundColor:'#ffd166',tension:0.3,label:'Forecast'},
+            {data:day30.data.lower,borderColor:'transparent',fill:false,pointRadius:0},
+          ]},options:chartOptions()});
+        }
+      }, 100);
+    }
+  }
+
+  // Fetch data in background — UI already visible
+  foData = await apiFetch(`/fo/${foInstrument.label}`);
+  if (foData.error) {
+    const body = document.getElementById('fo-body');
+    if (body) body.innerHTML = `<div style="padding:20px;text-align:center;color:#ef5350">⚠️ ${foData.error}<br><br><span style="font-size:11px;color:#3d6080">Try again in a moment</span></div>`;
+    return;
+  }
+  renderFOBody();
 
       <!-- Futures Panel -->
       <div id="fo-futures" style="padding:16px;display:${foTab==='futures'?'block':'none'}">
@@ -1124,49 +1301,6 @@ async function renderFO() {
       }
     }, 100);
   }
-
-  window.togglePicker = () => {
-    showPicker = !showPicker;
-    const dd = document.getElementById('picker-dropdown');
-    const arr = document.getElementById('picker-arrow');
-    if (dd) dd.style.display = showPicker ? 'block' : 'none';
-    if (arr) arr.style.transform = showPicker ? 'rotate(180deg)' : 'none';
-  };
-
-  window.foSearchChanged = (q) => {
-    foSearchQ = q;
-    const list = document.getElementById('picker-list');
-    if (!list) return;
-    const filtered = getFiltered();
-    const fi = filtered.filter(x=>x.type==='index');
-    const fs = filtered.filter(x=>x.type==='stock');
-    list.innerHTML = `
-      ${fi.length?`<div class="picker-section">INDICES (${fi.length})</div>`:''}
-      ${fi.map(x=>`<button class="picker-item" onclick="selectFOInstrument('${x.label}')" style="color:${foInstrument.label===x.label?'#4db6ff':'#f0f8ff'}"><div style="text-align:left"><div style="font-size:13px;font-weight:700">${x.label}</div><div style="font-size:10px;color:#3d6080">${x.name}</div></div><div style="text-align:right"><div style="font-size:13px;font-weight:600">${fmtN(x.price)}</div><div style="font-size:9px;color:#3d6080">Lot: ${x.lot}</div></div></button>`).join('')}
-      ${fs.length?`<div class="picker-section">STOCK OPTIONS (${fs.length})</div>`:''}
-      ${fs.map(x=>`<button class="picker-item" onclick="selectFOInstrument('${x.label}')" style="color:${foInstrument.label===x.label?'#4db6ff':'#f0f8ff'}"><div style="text-align:left"><div style="font-size:13px;font-weight:700">${x.label}</div><div style="font-size:10px;color:#3d6080">${x.name}</div></div><div style="text-align:right"><div style="font-size:13px;font-weight:600">₹${fmtN(x.price)}</div><div style="font-size:9px;color:#3d6080">Lot: ${x.lot}</div></div></button>`).join('')}`;
-  };
-
-  window.selectFOInstrument = (label) => {
-    foInstrument = FO_INSTRUMENTS.find(x=>x.label===label) || foInstrument;
-    showPicker = false;
-    foSearchQ = '';
-    renderFO();
-  };
-
-  window.foSwitchTab = (tab) => {
-    foTab = tab;
-    ['futures','options','forecast'].forEach(t => {
-      const el = document.getElementById('fo-'+t);
-      const btn = document.querySelector(`[onclick="foSwitchTab('${t}')"]`);
-      if (el) el.style.display = t===tab ? 'block' : 'none';
-      if (btn) btn.classList.toggle('active', t===tab);
-    });
-  };
-
-  c.innerHTML = spinner();
-  await buildFO();
-}
 
 // ── NEWS ─────────────────────────────────────────────────────────────────────
 async function renderNews() {
