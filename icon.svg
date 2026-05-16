@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="100" fill="#060e1c"/>
+  <text x="256" y="220" font-family="Arial" font-size="140" font-weight="bold" fill="#4db6ff" text-anchor="middle">MC</text>
+  <polyline points="80,380 180,280 260,320 380,200 460,240" stroke="#00c9a7" stroke-width="28" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
