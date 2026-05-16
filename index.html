@@ -1064,36 +1064,22 @@ const NIFTY_FO = [
   {label:'FINNIFTY',  name:'Fin Nifty',   lot:40,  type:'index'},
 ];
 
-// Pick 10 stocks smartly — spread across sectors
-const RECO_STOCKS = [
-  {name:'Reliance Industries',symbol:'RELIANCE', sector:'Energy'},
-  {name:'TCS',               symbol:'TCS',       sector:'IT'},
-  {name:'HDFC Bank',         symbol:'HDFCBANK',  sector:'Banking'},
-  {name:'Infosys',           symbol:'INFY',      sector:'IT'},
-  {name:'ICICI Bank',        symbol:'ICICIBANK', sector:'Banking'},
-  {name:'SBI',               symbol:'SBIN',      sector:'Banking'},
-  {name:'Bajaj Finance',     symbol:'BAJFINANCE',sector:'NBFC'},
-  {name:'Tata Motors',       symbol:'TATAMOTORS',sector:'Auto'},
-  {name:'Sun Pharma',        symbol:'SUNPHARMA', sector:'Pharma'},
-  {name:'Adani Ports',       symbol:'ADANIPORTS',sector:'Infra'},
-  {name:'Zomato',            symbol:'ZOMATO',    sector:'Tech'},
-  {name:'HAL',               symbol:'HAL',       sector:'Defence'},
-  {name:'Coal India',        symbol:'COALINDIA', sector:'Mining'},
-  {name:'Axis Bank',         symbol:'AXISBANK',  sector:'Banking'},
-  {name:'Maruti Suzuki',     symbol:'MARUTI',    sector:'Auto'},
-];
-
 const FO_RECO_STOCKS = [
-  {label:'RELIANCE', name:'Reliance Industries', lot:250, type:'stock'},
-  {label:'TCS',      name:'TCS',                 lot:150, type:'stock'},
-  {label:'HDFCBANK', name:'HDFC Bank',           lot:550, type:'stock'},
-  {label:'INFY',     name:'Infosys',             lot:400, type:'stock'},
-  {label:'SBIN',     name:'SBI',                 lot:1500,type:'stock'},
-  {label:'AXISBANK', name:'Axis Bank',           lot:625, type:'stock'},
-  {label:'BAJFINANCE',name:'Bajaj Finance',      lot:125, type:'stock'},
-  {label:'TATAMOTORS',name:'Tata Motors',        lot:550, type:'stock'},
-  {label:'SUNPHARMA',name:'Sun Pharma',          lot:350, type:'stock'},
-  {label:'ZOMATO',   name:'Zomato',              lot:4500,type:'stock'},
+  {label:'RELIANCE',  name:'Reliance Industries', lot:250,  type:'stock'},
+  {label:'TCS',       name:'TCS',                 lot:150,  type:'stock'},
+  {label:'HDFCBANK',  name:'HDFC Bank',           lot:550,  type:'stock'},
+  {label:'INFY',      name:'Infosys',             lot:400,  type:'stock'},
+  {label:'SBIN',      name:'SBI',                 lot:1500, type:'stock'},
+  {label:'AXISBANK',  name:'Axis Bank',           lot:625,  type:'stock'},
+  {label:'BAJFINANCE',name:'Bajaj Finance',       lot:125,  type:'stock'},
+  {label:'TATAMOTORS',name:'Tata Motors',         lot:550,  type:'stock'},
+  {label:'SUNPHARMA', name:'Sun Pharma',          lot:350,  type:'stock'},
+  {label:'ZOMATO',    name:'Zomato',              lot:4500, type:'stock'},
+  {label:'HAL',       name:'HAL',                 lot:150,  type:'stock'},
+  {label:'HCLTECH',   name:'HCL Technologies',    lot:350,  type:'stock'},
+  {label:'ICICIBANK', name:'ICICI Bank',          lot:700,  type:'stock'},
+  {label:'LT',        name:'L&T',                 lot:150,  type:'stock'},
+  {label:'MARUTI',    name:'Maruti Suzuki',       lot:50,   type:'stock'},
 ];
 
 async function renderReco() {
@@ -1121,31 +1107,55 @@ async function renderReco() {
   }
 
   async function buildStocksTab(horizon=0) {
-    const days = [1,7,30][horizon];
     const label = ['1 Day','7 Days','30 Days'][horizon];
-    let html = `
-      <div style="padding:12px 16px 6px">
+    const total = STOCKS.length;
+
+    // Show progress bar immediately
+    const progressHtml = `
+      <div style="padding:16px">
         <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TOP STOCK PICKS — ${label.toUpperCase()} FORECAST</div>
-        <div style="font-size:12px;color:#7aa8cc">Based on ARIMA model + technical signals</div>
+        <div style="font-size:12px;color:#7aa8cc;margin-bottom:16px">Scanning all ${total} stocks using 12 AI signals...</div>
+        <div style="background:#0c1e35;border:1px solid #1b3354;border-radius:12px;padding:16px;text-align:center">
+          <div style="font-size:13px;color:#4db6ff;margin-bottom:12px" id="reco-progress-text">Fetching stock data... 0/${total}</div>
+          <div style="height:8px;background:#132840;border-radius:4px;overflow:hidden;margin-bottom:8px">
+            <div id="reco-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#4db6ff,#00c9a7);border-radius:4px;transition:width 0.3s"></div>
+          </div>
+          <div style="font-size:11px;color:#3d6080">This may take 2-3 minutes for all ${total} stocks</div>
+          <div style="font-size:10px;color:#3d6080;margin-top:4px">Each stock is evaluated on: ARIMA + RSI + MACD + Bollinger + Volume + Support/Resistance + News + Global Mood + Sector + FII + Options OI</div>
+        </div>
       </div>`;
 
-    // Fetch all stocks in parallel
-    const results = await Promise.all(
-      RECO_STOCKS.map(s => apiFetch(`/stock/${s.symbol}`).then(d => ({...s, data:d})))
-    );
+    document.getElementById('reco-content').innerHTML = progressHtml;
 
-    // Sort by confidence
-    const sorted = results
-      .filter(r => !r.data?.error && r.data?.recommendation)
-      .sort((a,b) => (b.data.recommendation.confidence||0) - (a.data.recommendation.confidence||0))
-      .slice(0,10);
+    const results = [];
+    const BATCH_SIZE = 5; // fetch 5 at a time to avoid overloading
 
-    const buys  = sorted.filter(r => r.data.recommendation.bullish);
-    const sells = sorted.filter(r => !r.data.recommendation.bullish);
+    for (let i = 0; i < STOCKS.length; i += BATCH_SIZE) {
+      const batch = STOCKS.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(s => apiFetch(`/stock/${s.symbol}`).then(d => ({...s, data:d})).catch(() => null))
+      );
+      results.push(...batchResults.filter(Boolean));
+
+      // Update progress
+      const done = Math.min(i + BATCH_SIZE, total);
+      const pct  = Math.round((done / total) * 100);
+      const bar  = document.getElementById('reco-progress-bar');
+      const txt  = document.getElementById('reco-progress-text');
+      if (bar) bar.style.width = pct + '%';
+      if (txt) txt.textContent = `Analyzing stocks... ${done}/${total} (${pct}%)`;
+    }
+
+    // Sort by confidence — top 10 BUY, top 10 SELL
+    const valid = results.filter(r => r?.data && !r.data.error && r.data.recommendation);
+    const sorted = valid.sort((a,b) => (b.data.recommendation.confidence||0) - (a.data.recommendation.confidence||0));
+    const buys   = sorted.filter(r => r.data.recommendation.bullish).slice(0, 10);
+    const sells  = sorted.filter(r => !r.data.recommendation.bullish).slice(0, 10);
 
     function recoCard(r, rank) {
-      const rec = r.data.recommendation;
-      const d   = r.data;
+      const rec  = r.data.recommendation;
+      const d    = r.data;
+      const sig  = d.signals || {};
       const bull = rec.bullish;
       return `
         <div style="background:#0c1e35;border:1px solid ${bull?'#00c9a733':'#ef535033'};border-radius:12px;padding:14px;margin-bottom:10px">
@@ -1160,35 +1170,58 @@ async function renderReco() {
               <div style="font-size:10px;color:#3d6080">${rec.confidence}% confidence</div>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+
+          <!-- Price boxes -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:10px">
             ${[
-              ['CMP',       `₹${fmt(d.price)}`,        '#f0f8ff'],
-              ['Entry',     `₹${fmt(rec.entry)}`,      '#4db6ff'],
-              ['Target',    `₹${fmt(rec.target)}`,     '#00c9a7'],
-              ['Stop Loss', `₹${fmt(rec.stop_loss)}`,  '#ef5350'],
+              ['CMP',      `₹${fmt(d.price)}`,       '#f0f8ff'],
+              ['Entry',    `₹${fmt(rec.entry)}`,     '#4db6ff'],
+              ['Target',   `₹${fmt(rec.target)}`,    '#00c9a7'],
+              ['Stop Loss',`₹${fmt(rec.stop_loss)}`, '#ef5350'],
             ].map(([l,v,col])=>`
               <div style="background:#132840;border-radius:8px;padding:8px 6px;text-align:center">
                 <div style="font-size:8px;color:#3d6080;margin-bottom:3px">${l}</div>
                 <div style="font-size:11px;font-weight:700;color:${col}">${v}</div>
               </div>`).join('')}
           </div>
-          <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
-            <div style="flex:1;height:4px;background:#1b3354;border-radius:2px;overflow:hidden">
-              <div style="width:${rec.confidence}%;height:100%;background:${bull?'#00c9a7':'#ef5350'};border-radius:2px"></div>
-            </div>
-            <span style="font-size:10px;color:#3d6080">RSI: ${d.technicals?.rsi?.toFixed(0)||'—'}</span>
-            <span style="font-size:10px;color:${d.technicals?.macd>d.technicals?.macd_signal?'#00c9a7':'#ef5350'}">MACD: ${d.technicals?.macd>d.technicals?.macd_signal?'▲':'▼'}</span>
+
+          <!-- Mini signals row -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            ${[
+              ['RSI',    d.technicals?.rsi?.toFixed(0),       d.technicals?.rsi<70&&d.technicals?.rsi>30],
+              ['MACD',   d.technicals?.macd>d.technicals?.macd_signal?'▲':'▼', d.technicals?.macd>d.technicals?.macd_signal],
+              ['Vol',    `${d.technicals?.volume_ratio?.toFixed(1)}x`,          d.technicals?.volume_ratio>1],
+              ['News',   sig.news_sentiment>0.1?'+'+(sig.news_sentiment?.toFixed(1)):sig.news_sentiment?.toFixed(1)||'0', sig.news_sentiment>0],
+              ['Global', sig.global_mood,                                        sig.global_avg_pct>=0],
+              ['FII',    sig.fii_sentiment||'—',                                 sig.fii_sentiment==='Buying'],
+              ['PCR',    sig.options_pcr?.toFixed(2)||'—',                       sig.options_signal==='Bullish'],
+            ].map(([l,v,bull])=>`
+              <div style="background:#132840;border-radius:6px;padding:3px 7px;display:flex;gap:3px;align-items:center">
+                <span style="font-size:8px;color:#3d6080">${l}:</span>
+                <span style="font-size:9px;font-weight:600;color:${bull?'#00c9a7':'#ef5350'}">${v}</span>
+              </div>`).join('')}
+          </div>
+
+          <!-- Confidence bar -->
+          <div style="height:4px;background:#1b3354;border-radius:2px;overflow:hidden">
+            <div style="width:${rec.confidence}%;height:100%;background:${bull?'#00c9a7':'#ef5350'};border-radius:2px"></div>
           </div>
         </div>`;
     }
 
+    let html = `
+      <div style="padding:12px 16px 6px">
+        <div style="font-size:11px;color:#3d6080;margin-bottom:4px;letter-spacing:1px">TOP STOCK PICKS — ${label.toUpperCase()} FORECAST</div>
+        <div style="font-size:12px;color:#7aa8cc">Scanned ${valid.length}/${total} stocks • Ranked by AI confidence score</div>
+      </div>`;
+
     if (buys.length) {
-      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin-bottom:8px;letter-spacing:1px">🟢 BUY RECOMMENDATIONS (${buys.length})</div>`;
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin-bottom:8px;letter-spacing:1px;margin-top:8px">🟢 TOP BUY PICKS (${buys.length})</div>`;
       buys.forEach((r,i) => { html += recoCard(r, i+1); });
       html += `</div>`;
     }
     if (sells.length) {
-      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#ef5350;margin:12px 0 8px;letter-spacing:1px">🔴 SELL / AVOID (${sells.length})</div>`;
+      html += `<div style="padding:0 16px"><div style="font-size:10px;color:#ef5350;margin:12px 0 8px;letter-spacing:1px">🔴 TOP SELL / AVOID (${sells.length})</div>`;
       sells.forEach((r,i) => { html += recoCard(r, i+1); });
       html += `</div>`;
     }
