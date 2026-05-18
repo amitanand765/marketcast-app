@@ -573,7 +573,9 @@ async function renderStockDetail() {
 
       <!-- 1-Day intraday chart -->
       <div style="margin-bottom:16px">
-        <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">1-DAY INTRADAY FORECAST (TOMORROW)</div>
+        <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">
+          1-DAY INTRADAY FORECAST — ${intraday[0]?.label==='today'?'TODAY (REMAINING HOURS)':'TOMORROW (FULL DAY)'}
+        </div>
         <div class="card" style="padding:14px 8px 8px">
           <div class="chart-wrap"><canvas id="chart-intraday" height="150"></canvas></div>
           <div style="display:flex;justify-content:space-between;padding:8px 6px 0;border-top:1px solid #1b335420;margin-top:4px">
@@ -1060,7 +1062,9 @@ async function renderFO() {
             <div style="font-size:11px;color:#7aa8cc;margin-top:4px">Expected move: ${expMove>0?'+':''}${expMove.toFixed(0)} pts</div>
           </div>
           <div style="margin-bottom:16px">
-            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">1-DAY INTRADAY FORECAST</div>
+            <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">
+            1-DAY INTRADAY FORECAST — ${intraday[0]?.label==='today'?'TODAY (REMAINING HOURS)':'TOMORROW (FULL DAY)'}
+          </div>
             <div class="card" style="padding:14px 8px 8px"><div class="chart-wrap"><canvas id="fo-chart-intraday" height="150"></canvas></div></div>
           </div>
           <div style="margin-bottom:16px">
