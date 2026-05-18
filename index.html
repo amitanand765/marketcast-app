@@ -168,12 +168,15 @@ const chgColor = (v) => v >= 0 ? '#00c9a7' : '#ef5350';
 const chgArrow = (v) => v >= 0 ? '▲' : '▼';
 const chgHtml  = (v,p,size=12) => `<span style="color:${chgColor(v)};font-size:${size}px;font-weight:500">${chgArrow(v)} ${Math.abs(v).toFixed(2)} (${Math.abs(p).toFixed(2)}%)</span>`;
 
-async function apiFetch(path) {
-  try {
-    const r = await fetch(API + path);
-    return await r.json();
-  } catch(e) {
-    return {error: e.message};
+async function apiFetch(path, retries=2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const r = await fetch(API + path);
+      return await r.json();
+    } catch(e) {
+      if (i === retries) return {error: e.message};
+      await new Promise(r => setTimeout(r, 2000)); // wait 2 sec before retry
+    }
   }
 }
 
@@ -1263,8 +1266,21 @@ async function renderReco() {
       </div>
       <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}</style>`;
 
-    // Fetch from daily-picks endpoint
-    const data = await apiFetch('/daily-picks');
+    // Fetch from daily-picks endpoint with retry
+    let data = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      data = await apiFetch('/daily-picks');
+      if (!data.error) break;
+      if (attempt < 3) {
+        document.getElementById('reco-content').innerHTML = `
+          <div style="padding:16px;text-align:center">
+            <div style="font-size:32px;margin-bottom:12px">⏳</div>
+            <div style="font-size:13px;color:#4db6ff">Connecting to server... (attempt ${attempt}/3)</div>
+            <div style="font-size:11px;color:#3d6080;margin-top:8px">Please wait...</div>
+          </div>`;
+        await new Promise(r => setTimeout(r, 3000)); // wait 3 seconds before retry
+      }
+    }
 
     if (data.error) {
       document.getElementById('reco-content').innerHTML = `
