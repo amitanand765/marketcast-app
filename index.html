@@ -471,11 +471,16 @@ async function renderStockDetail() {
     </div>
     <div style="padding:14px 16px 0">${spinner()}</div>`;
 
-  // Fetch real data
+  // Fetch real data + actual price in parallel
   if (!stockCache[s.symbol]) {
-    stockCache[s.symbol] = await apiFetch(`/stock/${s.symbol}`);
+    const [stockData, actualData] = await Promise.all([
+      apiFetch(`/stock/${s.symbol}`),
+      apiFetch(`/actual-price/${s.symbol}`),
+    ]);
+    stockCache[s.symbol] = {...stockData, actual: actualData};
   }
   const d = stockCache[s.symbol];
+  const actual = d.actual || {};
   if (d.error) {
     c.innerHTML += `<div style="padding:20px;text-align:center;color:#ef5350">Error: ${d.error}</div>`;
     return;
@@ -722,7 +727,7 @@ async function renderStockDetail() {
 
   // Draw charts after DOM ready
   setTimeout(() => {
-    drawIntradayChart(intraday, bullish);
+    drawIntradayChart(intraday, bullish, actual.actual_points || []);
     drawForecastChart('chart-7d',  day7.dates,  day7.data,  '#4db6ff');
     drawForecastChart('chart-30d', day30.dates, day30.data, '#ffd166');
   }, 100);
@@ -736,50 +741,69 @@ function switchTab(tab) {
   });
 }
 
-function drawIntradayChart(data, bullish) {
+function drawIntradayChart(data, bullish, actualData=[]) {
   const el = document.getElementById('chart-intraday');
   if (!el || !data.length) return;
   const color = bullish ? '#00c9a7' : '#ef5350';
+  const datasets = [
+    {
+      label: 'Upper Band',
+      data: data.map(d => d.upper),
+      borderColor: 'transparent',
+      backgroundColor: color+'18',
+      fill: '+1',
+      pointRadius: 0,
+      pointHoverRadius: 0,
+    },
+    {
+      label: 'Forecast',
+      data: data.map(d => d.predicted),
+      borderColor: color,
+      borderWidth: 2,
+      borderDash: [5,3],
+      fill: false,
+      pointRadius: 2,
+      pointHoverRadius: 6,
+      pointBackgroundColor: color,
+      tension: 0.3,
+    },
+    {
+      label: 'Lower Band',
+      data: data.map(d => d.lower),
+      borderColor: 'transparent',
+      backgroundColor: 'transparent',
+      fill: false,
+      pointRadius: 0,
+      pointHoverRadius: 0,
+    },
+  ];
+
+  // Add actual price line if available
+  if (actualData.length > 0) {
+    // Map actual data to forecast time slots
+    const forecastTimes = data.map(d => d.time);
+    const actualMapped = forecastTimes.map(t => {
+      const match = actualData.find(a => a.time === t);
+      return match ? match.price : null;
+    });
+    datasets.push({
+      label: 'Actual',
+      data: actualMapped,
+      borderColor: '#ffd166',
+      borderWidth: 2.5,
+      fill: false,
+      pointRadius: 3,
+      pointHoverRadius: 7,
+      pointBackgroundColor: '#ffd166',
+      tension: 0.1,
+      spanGaps: false,
+    });
+  }
+
   new Chart(el, {
     type: 'line',
-    data: {
-      labels: data.map(d => d.time),
-      datasets: [
-        {
-          label: 'Upper',
-          data: data.map(d => d.upper),
-          borderColor: 'transparent',
-          backgroundColor: color+'22',
-          fill: '+1',
-          pointRadius: 0,
-          pointHoverRadius: 0,
-        },
-        {
-          label: 'Forecast',
-          data: data.map(d => d.predicted),
-          borderColor: color,
-          borderWidth: 2,
-          fill: false,
-          pointRadius: 3,
-          pointHoverRadius: 6,
-          pointBackgroundColor: color,
-          pointHoverBackgroundColor: '#fff',
-          pointHoverBorderColor: color,
-          pointHoverBorderWidth: 2,
-          tension: 0.3,
-        },
-        {
-          label: 'Lower',
-          data: data.map(d => d.lower),
-          borderColor: 'transparent',
-          backgroundColor: 'transparent',
-          fill: false,
-          pointRadius: 0,
-          pointHoverRadius: 0,
-        },
-      ]
-    },
-    options: chartOptions(),
+    data: { labels: data.map(d => d.time), datasets },
+    options: chartOptions('₹', actualData.length > 0),
   });
 }
 
@@ -829,17 +853,26 @@ function drawForecastChart(id, labels, data, color) {
   });
 }
 
-function chartOptions(yPrefix='₹') {
+function chartOptions(yPrefix='₹', showLegend=false) {
   return {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
     interaction: {
-      mode: 'index',          // show all datasets at same x point
-      intersect: false,       // trigger even if not exactly on point
+      mode: 'index',
+      intersect: false,
     },
     plugins: {
-      legend: {display:false},
+      legend: {
+        display: showLegend,
+        position: 'top',
+        labels: {
+          color: '#7aa8cc',
+          font: {size: 10},
+          boxWidth: 20,
+          filter: item => item.text !== 'Upper Band' && item.text !== 'Lower Band',
+        }
+      },
       tooltip: {
         enabled: true,
         mode: 'index',
@@ -850,17 +883,15 @@ function chartOptions(yPrefix='₹') {
         borderColor: '#1b3354',
         borderWidth: 1,
         padding: 10,
-        displayColors: false,
+        displayColors: true,
         callbacks: {
-          title: ctx => ctx[0]?.label || '',
           label: ctx => {
             if (ctx.parsed.y == null) return null;
-            const label = ctx.dataset.label || '';
-            const val = `${yPrefix}${Number(ctx.parsed.y).toLocaleString('en-IN',{minimumFractionDigits:2})}`;
-            return label ? `${label}: ${val}` : val;
+            const val = `₹${Number(ctx.parsed.y).toLocaleString('en-IN',{minimumFractionDigits:2})}`;
+            return `${ctx.dataset.label}: ${val}`;
           },
-          // Filter out null/zero values from tooltip
-          filter: item => item.parsed.y != null && item.parsed.y !== 0,
+          filter: item => item.parsed.y != null && item.parsed.y !== 0 &&
+            item.dataset.label !== 'Upper Band' && item.dataset.label !== 'Lower Band',
         }
       }
     },
@@ -880,22 +911,8 @@ function chartOptions(yPrefix='₹') {
         border: {display:false}
       }
     },
-    // Enable touch events on mobile
     events: ['mousemove','mouseout','click','touchstart','touchmove','touchend'],
   };
-}
-
-function forecastChartOptions(color) {
-  const base = chartOptions();
-  // Add vertical crosshair line on touch/hover
-  base.plugins.crosshair = {
-    line: {
-      color: color,
-      width: 1,
-      dashPattern: [5,5],
-    },
-  };
-  return base;
 }
 
 // ── F&O ──────────────────────────────────────────────────────────────────────
@@ -1269,34 +1286,19 @@ async function renderReco() {
       </div>
       <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}</style>`;
 
-    // Fetch from daily-picks endpoint with retry
-    let data = null;
-    const maxAttempts = 5;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      data = await apiFetch('/daily-picks');
-      if (!data.error) break;
-      if (attempt < maxAttempts) {
-        const waitSec = attempt * 10; // 10, 20, 30, 40 seconds
-        let remaining = waitSec;
-        const interval = setInterval(() => {
-          remaining--;
-          const el = document.getElementById('reco-retry-msg');
-          if (el) el.textContent = `Server waking up... retrying in ${remaining}s (attempt ${attempt}/${maxAttempts})`;
-          if (remaining <= 0) clearInterval(interval);
-        }, 1000);
-        document.getElementById('reco-content').innerHTML = `
-          <div style="padding:24px 16px;text-align:center">
-            <div style="font-size:40px;margin-bottom:14px">☕</div>
-            <div style="font-size:14px;color:#4db6ff;margin-bottom:8px">Server is waking up...</div>
-            <div style="font-size:12px;color:#3d6080;margin-bottom:16px" id="reco-retry-msg">Retrying in ${waitSec}s (attempt ${attempt}/${maxAttempts})</div>
-            <div style="height:4px;background:#132840;border-radius:2px;overflow:hidden;margin:0 40px">
-              <div style="width:${(attempt/maxAttempts)*100}%;height:100%;background:#4db6ff;border-radius:2px"></div>
-            </div>
-            <div style="font-size:11px;color:#3d6080;margin-top:12px">Railway free tier sleeps when idle.<br>First load takes ~30-60 seconds.</div>
-          </div>`;
-        await new Promise(r => setTimeout(r, waitSec * 1000));
-      }
+    // Fetch picks and results in parallel
+    const [data, resultsData] = await Promise.all([
+      apiFetch('/daily-picks'),
+      apiFetch('/pick-results'),
+    ]);
+
+    // Build results map for quick lookup
+    const resultsMap = {};
+    if (resultsData && !resultsData.error) {
+      (resultsData.results || []).forEach(r => { resultsMap[r.symbol] = r; });
     }
+    const summary = resultsData?.summary || null;
+    const afterClose = resultsData?.after_close || false;
 
     if (data.error) {
       document.getElementById('reco-content').innerHTML = `
@@ -1325,6 +1327,7 @@ async function renderReco() {
     function recoCard(r, rank) {
       const bull = r.bullish;
       const sig  = r.signals || {};
+      const res  = resultsMap[r.symbol];
       return `
         <div style="background:#0c1e35;border:1px solid ${bull?'#00c9a733':'#ef535033'};border-radius:12px;padding:14px;margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -1338,6 +1341,16 @@ async function renderReco() {
               <div style="font-size:10px;color:#3d6080">${r.confidence}% confidence</div>
             </div>
           </div>
+
+          <!-- Result badge if available -->
+          ${res ? `
+          <div style="background:${res.result_color}22;border:1px solid ${res.result_color}55;border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
+            <div style="font-size:12px;font-weight:700;color:${res.result_color}">${res.result_label}</div>
+            <div style="text-align:right;font-size:10px;color:#3d6080">
+              <div>High: ₹${fmt(res.actual_high)}</div>
+              <div>Low: ₹${fmt(res.actual_low)}</div>
+            </div>
+          </div>` : ''}
 
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:10px">
             ${[
@@ -1401,7 +1414,34 @@ async function renderReco() {
           <div style="font-size:9px;color:#3d6080">NEXT REFRESH</div>
           <div style="font-size:9px;color:#4db6ff">Tomorrow 5 AM</div>
         </div>
-      </div>`;
+      </div>
+
+      <!-- Accuracy Summary Banner -->
+      ${summary && (summary.target_hits + summary.sl_hits) > 0 ? `
+      <div style="margin:8px 16px;background:#132840;border:1px solid #1b3354;border-radius:10px;padding:12px 14px">
+        <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">📊 TODAY'S ACCURACY</div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <div style="text-align:center">
+            <div style="font-size:22px;font-weight:800;color:${summary.accuracy_pct>=60?'#00c9a7':summary.accuracy_pct>=40?'#ffd166':'#ef5350'}">${summary.accuracy_pct}%</div>
+            <div style="font-size:9px;color:#3d6080">Accuracy</div>
+          </div>
+          <div style="flex:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+            ${[
+              ['✅ Target','#00c9a7',summary.target_hits],
+              ['❌ SL Hit','#ef5350',summary.sl_hits],
+              ['➖ Expired','#ffd166',summary.expired],
+              ['⏳ Active','#4db6ff',summary.in_progress],
+            ].map(([l,col,v])=>`
+              <div style="background:#0c1e35;border-radius:8px;padding:6px;text-align:center">
+                <div style="font-size:14px;font-weight:700;color:${col}">${v}</div>
+                <div style="font-size:8px;color:#3d6080">${l}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+        <div style="margin-top:8px;height:4px;background:#0c1e35;border-radius:2px;overflow:hidden">
+          <div style="width:${summary.accuracy_pct}%;height:100%;background:${summary.accuracy_pct>=60?'#00c9a7':summary.accuracy_pct>=40?'#ffd166':'#ef5350'};border-radius:2px"></div>
+        </div>
+      </div>` : ''}`;
 
     if (buys.length) {
       html += `<div style="padding:0 16px"><div style="font-size:10px;color:#00c9a7;margin:10px 0 8px;letter-spacing:1px">🟢 TOP BUY PICKS (${buys.length})</div>`;
