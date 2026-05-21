@@ -150,7 +150,7 @@
 
 <script>
 // ── CONFIG ──────────────────────────────────────────────────────────────────
-const API = 'https://marketcast-backend-production.up.railway.app';
+const API = 'https://marketcast-backend.onrender.com';
 
 // ── STATE ───────────────────────────────────────────────────────────────────
 let currentTab    = 'home';
@@ -1292,13 +1292,14 @@ async function renderReco() {
       apiFetch('/pick-results'),
     ]);
 
-    // Build results map for quick lookup
+    // Build results map only if show_results is true
     const resultsMap = {};
-    if (resultsData && !resultsData.error) {
+    const showResults = resultsData?.show_results === true;
+    if (showResults) {
       (resultsData.results || []).forEach(r => { resultsMap[r.symbol] = r; });
     }
-    const summary = resultsData?.summary || null;
-    const afterClose = resultsData?.after_close || false;
+    const summary    = showResults ? (resultsData?.summary || null) : null;
+    const afterClose = showResults;
 
     if (data.error) {
       document.getElementById('reco-content').innerHTML = `
