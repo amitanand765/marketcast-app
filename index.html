@@ -1286,7 +1286,18 @@ async function renderReco() {
       </div>
       <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}</style>`;
 
-    // Fetch picks and results in parallel
+    document.getElementById('reco-content').innerHTML = `
+      <div style="padding:24px 16px;text-align:center">
+        <div style="font-size:40px;margin-bottom:14px">🔍</div>
+        <div style="font-size:14px;color:#4db6ff;margin-bottom:8px">Scanning 152 stocks...</div>
+        <div style="font-size:12px;color:#3d6080;margin-bottom:16px">Using 13 AI signals — please wait</div>
+        <div style="height:4px;background:#132840;border-radius:2px;overflow:hidden;margin:0 40px">
+          <div style="width:100%;height:100%;background:linear-gradient(90deg,#4db6ff,#00c9a7);border-radius:2px;animation:slide 1.5s infinite"></div>
+        </div>
+      </div>
+      <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}</style>`;
+
+    // Fetch picks synchronously
     const [data, resultsData] = await Promise.all([
       apiFetch('/daily-picks'),
       apiFetch('/pick-results'),
@@ -1303,22 +1314,7 @@ async function renderReco() {
 
     if (data.error) {
       document.getElementById('reco-content').innerHTML = `
-        <div style="padding:16px;text-align:center;color:#ef5350">Error loading picks: ${data.error}</div>`;
-      return;
-    }
-
-    // Still generating in background
-    if (data.status === 'generating') {
-      document.getElementById('reco-content').innerHTML = `
-        <div style="padding:16px">
-          <div style="background:#0c1e35;border:1px solid #1b3354;border-radius:12px;padding:24px;text-align:center">
-            <div style="font-size:32px;margin-bottom:12px">⏳</div>
-            <div style="font-size:14px;color:#4db6ff;margin-bottom:8px">Generating today's picks...</div>
-            <div style="font-size:12px;color:#3d6080;margin-bottom:16px">Scanning 152 stocks with 13 AI signals</div>
-            <div style="font-size:11px;color:#7aa8cc">Come back in 5-6 minutes</div>
-            <button onclick="buildStocksTab()" style="margin-top:16px;background:#132840;border:1px solid #1b3354;color:#4db6ff;padding:8px 20px;border-radius:20px;font-size:12px;cursor:pointer;font-family:inherit">🔄 Check Again</button>
-          </div>
-        </div>`;
+        <div style="padding:16px;text-align:center;color:#ef5350">Error loading picks. Please try again.</div>`;
       return;
     }
 
