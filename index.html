@@ -1286,22 +1286,55 @@ async function renderReco() {
       </div>
       <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}</style>`;
 
+    // Show loading animation
     document.getElementById('reco-content').innerHTML = `
-      <div style="padding:24px 16px;text-align:center">
+      <div style="padding:24px 16px;text-align:center" id="picks-loading">
         <div style="font-size:40px;margin-bottom:14px">🔍</div>
-        <div style="font-size:14px;color:#4db6ff;margin-bottom:8px">Scanning 152 stocks...</div>
-        <div style="font-size:12px;color:#3d6080;margin-bottom:16px">Using 13 AI signals — please wait</div>
+        <div style="font-size:14px;color:#4db6ff;margin-bottom:8px" id="picks-status">Connecting to server...</div>
+        <div style="font-size:11px;color:#3d6080;margin-bottom:16px">Scanning 152 stocks with 13 AI signals</div>
         <div style="height:4px;background:#132840;border-radius:2px;overflow:hidden;margin:0 40px">
           <div style="width:100%;height:100%;background:linear-gradient(90deg,#4db6ff,#00c9a7);border-radius:2px;animation:slide 1.5s infinite"></div>
         </div>
+        <div style="font-size:10px;color:#3d6080;margin-top:12px" id="picks-timer">This takes 2-3 minutes on first load</div>
       </div>
-      <style>@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}</style>`;
+      <style>@keyframes slide{0%{margin-left:-100%}100%{margin-left:100%}}</style>`;
 
-    // Fetch picks synchronously
-    const [data, resultsData] = await Promise.all([
-      apiFetch('/daily-picks'),
-      apiFetch('/pick-results'),
-    ]);
+    // Trigger background generation first
+    await apiFetch('/daily-picks/refresh');
+
+    // Auto-poll every 15 seconds until picks are ready
+    let pollCount = 0;
+    const maxPolls = 20; // max 5 minutes
+    let data = null;
+
+    while (pollCount < maxPolls) {
+      await new Promise(r => setTimeout(r, 15000)); // wait 15 seconds
+      pollCount++;
+      const el = document.getElementById('picks-status');
+      const timer = document.getElementById('picks-timer');
+      if (el) el.textContent = `Scanning stocks... (${pollCount * 15}s elapsed)`;
+      if (timer) timer.textContent = `Checking every 15 seconds — attempt ${pollCount}/${maxPolls}`;
+
+      const result = await apiFetch('/daily-picks');
+      if (result && !result.error && result.status !== 'generating' && result.total_scanned > 0) {
+        data = result;
+        break;
+      }
+    }
+
+    if (!data || data.total_scanned === 0) {
+      document.getElementById('reco-content').innerHTML = `
+        <div style="padding:16px;text-align:center">
+          <div style="font-size:32px;margin-bottom:12px">⏰</div>
+          <div style="font-size:14px;color:#ffd166;margin-bottom:8px">Taking longer than expected</div>
+          <div style="font-size:12px;color:#3d6080;margin-bottom:16px">Server is processing 152 stocks</div>
+          <button onclick="buildStocksTab()" style="background:#132840;border:1px solid #4db6ff;color:#4db6ff;padding:10px 24px;border-radius:20px;font-size:13px;cursor:pointer;font-family:inherit">🔄 Try Again</button>
+        </div>`;
+      return;
+    }
+
+    // Fetch results in parallel
+    const resultsData = await apiFetch('/pick-results');
 
     // Build results map only if show_results is true
     const resultsMap = {};
