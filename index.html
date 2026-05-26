@@ -472,15 +472,15 @@ async function renderStockDetail() {
     <div style="padding:14px 16px 0">${spinner()}</div>`;
 
   // Fetch real data + actual price in parallel
+  // Stock data cached, actual price always fresh
   if (!stockCache[s.symbol]) {
-    const [stockData, actualData] = await Promise.all([
-      apiFetch(`/stock/${s.symbol}`),
-      apiFetch(`/actual-price/${s.symbol}`),
-    ]);
-    stockCache[s.symbol] = {...stockData, actual: actualData};
+    stockCache[s.symbol] = await apiFetch(`/stock/${s.symbol}`);
   }
   const d = stockCache[s.symbol];
-  const actual = d.actual || {};
+
+  // Always fetch fresh actual price (never cache)
+  const actual = await apiFetch(`/actual-price/${s.symbol}`);
+
   if (d.error) {
     c.innerHTML += `<div style="padding:20px;text-align:center;color:#ef5350">Error: ${d.error}</div>`;
     return;
@@ -584,19 +584,35 @@ async function renderStockDetail() {
 
       <!-- 1-Day intraday chart -->
       <div style="margin-bottom:16px">
-        <div style="font-size:10px;color:#3d6080;margin-bottom:8px;letter-spacing:1px">
-          1-DAY INTRADAY FORECAST — ${intraday[0]?.label==='today'?'TODAY (REMAINING HOURS)':'TOMORROW (FULL DAY)'}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:10px;color:#3d6080;letter-spacing:1px">
+            ${actual.market_open ? '📈 TODAY — LIVE' : actual.show_actual ? '📊 TODAY — ACTUAL vs FORECAST' : '🔮 ' + (intraday[0]?.label==='today'?'TODAY (REMAINING)':'TOMORROW (FORECAST)')}
+          </div>
+          ${actual.market_open ? `<div style="font-size:9px;color:#00c9a7">● LIVE</div>` : ''}
         </div>
         <div class="card" style="padding:14px 8px 8px">
           <div class="chart-wrap"><canvas id="chart-intraday" height="150"></canvas></div>
+          ${actual.show_actual ? `
           <div style="display:flex;justify-content:space-between;padding:8px 6px 0;border-top:1px solid #1b335420;margin-top:4px">
             ${[
-              ['Open',      `₹${fmtN(intraday[0]?.predicted||d.price)}`,         '#f0f8ff'],
-              ['High',      `₹${fmtN(Math.max(...intraday.map(x=>x.upper||0)))}`, '#00c9a7'],
+              ['Open',    `₹${fmt(actual.open||d.price)}`,   '#f0f8ff'],
+              ['High',    `₹${fmt(actual.high||d.price)}`,   '#00c9a7'],
+              ['Low',     `₹${fmt(actual.low||d.price)}`,    '#ef5350'],
+              ['Close',   `₹${fmt(actual.close||d.price)}`,  '#ffd166'],
+            ].map(([l,v,col])=>`<div style="text-align:center"><div style="font-size:9px;color:#3d6080">${l}</div><div style="font-size:11px;font-weight:600;color:${col}">${v}</div></div>`).join('')}
+          </div>
+          <div style="display:flex;gap:12px;padding:4px 6px 0;font-size:9px;color:#7aa8cc">
+            <span>── Forecast</span>
+            <span style="color:#ffd166">── Actual</span>
+          </div>` : `
+          <div style="display:flex;justify-content:space-between;padding:8px 6px 0;border-top:1px solid #1b335420;margin-top:4px">
+            ${[
+              ['Open',      `₹${fmtN(intraday[0]?.predicted||d.price)}`,          '#f0f8ff'],
+              ['High',      `₹${fmtN(Math.max(...intraday.map(x=>x.upper||0)))}`,  '#00c9a7'],
               ['Low',       `₹${fmtN(Math.min(...intraday.map(x=>x.lower||999999)))}`, '#ef5350'],
               ['Close Est.',`₹${fmtN(intraday[intraday.length-1]?.predicted||d.price)}`, bullish?'#00c9a7':'#ef5350'],
             ].map(([l,v,col])=>`<div style="text-align:center"><div style="font-size:9px;color:#3d6080">${l}</div><div style="font-size:11px;font-weight:600;color:${col}">${v}</div></div>`).join('')}
-          </div>
+          </div>`}
         </div>
       </div>
 
@@ -727,7 +743,7 @@ async function renderStockDetail() {
 
   // Draw charts after DOM ready
   setTimeout(() => {
-    drawIntradayChart(intraday, bullish, actual.actual_points || []);
+    drawIntradayChart(intraday, bullish, actual.show_actual ? (actual.actual_points || []) : []);
     drawForecastChart('chart-7d',  day7.dates,  day7.data,  '#4db6ff');
     drawForecastChart('chart-30d', day30.dates, day30.data, '#ffd166');
   }, 100);
