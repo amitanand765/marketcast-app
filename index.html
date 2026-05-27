@@ -830,23 +830,43 @@ function drawIntradayChart(data, bullish, actualData=[]) {
 
   // Add actual price line if available
   if (actualData.length > 0) {
-    // Map actual data to forecast time slots
     const forecastTimes = data.map(d => d.time);
-    const actualMapped = forecastTimes.map(t => {
-      const match = actualData.find(a => a.time === t);
-      return match ? match.price : null;
-    });
+    const n = forecastTimes.length;
+    let actualMapped;
+
+    if (actualData.length >= n) {
+      // More actual points than forecast slots — sample evenly
+      actualMapped = forecastTimes.map((t, i) => {
+        const idx = Math.floor(i * actualData.length / n);
+        return actualData[idx]?.price || null;
+      });
+    } else {
+      // Fewer actual points — map by time or spread evenly
+      actualMapped = forecastTimes.map(t => {
+        const match = actualData.find(a => a.time === t);
+        if (match) return match.price;
+        return null;
+      });
+      // If time matching fails, spread points evenly across all slots
+      const nonNull = actualMapped.filter(v => v !== null);
+      if (nonNull.length < actualData.length) {
+        actualMapped = forecastTimes.map((t, i) => {
+          const idx = Math.floor(i * actualData.length / n);
+          return idx < actualData.length ? actualData[idx].price : null;
+        });
+      }
+    }
     datasets.push({
       label: 'Actual',
       data: actualMapped,
       borderColor: '#ffd166',
       borderWidth: 2.5,
       fill: false,
-      pointRadius: 3,
-      pointHoverRadius: 7,
+      pointRadius: 2,
+      pointHoverRadius: 6,
       pointBackgroundColor: '#ffd166',
-      tension: 0.1,
-      spanGaps: false,
+      tension: 0.4,
+      spanGaps: true,
     });
   }
 
