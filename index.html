@@ -743,7 +743,26 @@ async function renderStockDetail() {
 
   // Draw charts after DOM ready
   setTimeout(() => {
-    drawIntradayChart(intraday, bullish, actual.show_actual ? (actual.actual_points || []) : []);
+    // Build actual points for chart
+    let actualPoints = [];
+    if (actual.show_actual) {
+      if (actual.actual_points && actual.actual_points.length > 0) {
+        // Live intraday points during market hours
+        actualPoints = actual.actual_points;
+      } else if (actual.close && !actual.market_open) {
+        // After close — create OHLC points across the day
+        actualPoints = [
+          {time: '9:15',  price: actual.open},
+          {time: '10:00', price: (actual.open + actual.close) / 2 + (actual.high - actual.low) * 0.1},
+          {time: '11:00', price: actual.high},
+          {time: '12:30', price: (actual.high + actual.low) / 2},
+          {time: '14:00', price: actual.low},
+          {time: '15:00', price: (actual.low + actual.close) / 2},
+          {time: '15:30', price: actual.close},
+        ];
+      }
+    }
+    drawIntradayChart(intraday, bullish, actualPoints);
     drawForecastChart('chart-7d',  day7.dates,  day7.data,  '#4db6ff');
     drawForecastChart('chart-30d', day30.dates, day30.data, '#ffd166');
   }, 100);
