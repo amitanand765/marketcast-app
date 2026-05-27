@@ -471,8 +471,8 @@ async function renderStockDetail() {
     </div>
     <div style="padding:14px 16px 0">${spinner()}</div>`;
 
-  // Fetch real data + actual price in parallel
-  // Stock data cached, actual price always fresh
+  // Always fetch fresh data — don't use cache for actual prices
+  stockCache[s.symbol] = null;
   if (!stockCache[s.symbol]) {
     stockCache[s.symbol] = await apiFetch(`/stock/${s.symbol}`);
   }
@@ -745,21 +745,36 @@ async function renderStockDetail() {
   setTimeout(() => {
     // Build actual points for chart
     let actualPoints = [];
-    if (actual.show_actual) {
+    if (actual && actual.show_actual && actual.close) {
       if (actual.actual_points && actual.actual_points.length > 0) {
         // Live intraday points during market hours
         actualPoints = actual.actual_points;
-      } else if (actual.close && !actual.market_open) {
-        // After close — create OHLC points across the day
-        actualPoints = [
-          {time: '9:15',  price: actual.open},
-          {time: '10:00', price: (actual.open + actual.close) / 2 + (actual.high - actual.low) * 0.1},
-          {time: '11:00', price: actual.high},
-          {time: '12:30', price: (actual.high + actual.low) / 2},
-          {time: '14:00', price: actual.low},
-          {time: '15:00', price: (actual.low + actual.close) / 2},
-          {time: '15:30', price: actual.close},
-        ];
+      } else {
+        // After close — spread OHLC across all forecast time slots
+        const forecastTimes = intraday.map(d => d.time);
+        const n = forecastTimes.length;
+        if (n > 0) {
+          const open  = actual.open  || actual.close;
+          const high  = actual.high  || actual.close;
+          const low   = actual.low   || actual.close;
+          const close = actual.close;
+          // Create smooth curve: open → high (morning) → low (afternoon) → close
+          actualPoints = forecastTimes.map((t, i) => {
+            const progress = i / (n - 1);
+            let price;
+            if (progress < 0.3) {
+              // Morning: open to high
+              price = open + (high - open) * (progress / 0.3);
+            } else if (progress < 0.6) {
+              // Midday: high to low
+              price = high + (low - high) * ((progress - 0.3) / 0.3);
+            } else {
+              // Afternoon: low to close
+              price = low + (close - low) * ((progress - 0.6) / 0.4);
+            }
+            return {time: t, price: Math.round(price * 100) / 100};
+          });
+        }
       }
     }
     drawIntradayChart(intraday, bullish, actualPoints);
