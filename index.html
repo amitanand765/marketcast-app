@@ -878,24 +878,29 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7) {
   const el = document.getElementById(id);
   if (!el || !labels?.length) return;
 
-  // Map last N actual prices to forecast date slots
-  const actualMapped = labels.map(() => null);
-  if (actualHistory.length > 0) {
-    const recent = actualHistory.slice(-days);
-    recent.forEach((a, i) => {
-      if (i < actualMapped.length) actualMapped[i] = a.price;
-    });
-  }
-  const hasActual = actualMapped.some(v => v !== null);
+  const hasActual = actualHistory.length > 0;
+  const recent    = actualHistory.slice(-days);
+
+  // Combined labels: past actual dates + future forecast dates
+  const pastLabels  = recent.map(a => a.date);
+  const allLabels   = [...pastLabels, ...labels];
+
+  // Actual line: past values + null for future
+  const actualData  = [...recent.map(a => a.price), ...labels.map(() => null)];
+
+  // Forecast line: null for past + future values
+  const forecastData = [...pastLabels.map(() => null), ...data.predicted];
+  const upperData    = [...pastLabels.map(() => null), ...(data.upper||[])];
+  const lowerData    = [...pastLabels.map(() => null), ...(data.lower||[])];
 
   new Chart(el, {
     type: 'line',
     data: {
-      labels,
+      labels: allLabels,
       datasets: [
         {
           label: 'Upper Band',
-          data: data.upper,
+          data: upperData,
           borderColor: 'transparent',
           backgroundColor: color+'22',
           fill: '+1',
@@ -904,7 +909,7 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7) {
         },
         {
           label: 'Forecast',
-          data: data.predicted,
+          data: forecastData,
           borderColor: color,
           borderWidth: 2,
           borderDash: [5,3],
@@ -913,10 +918,11 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7) {
           pointHoverRadius: 7,
           pointBackgroundColor: color,
           tension: 0.3,
+          spanGaps: false,
         },
         {
           label: 'Lower Band',
-          data: data.lower,
+          data: lowerData,
           borderColor: 'transparent',
           backgroundColor: 'transparent',
           fill: false,
@@ -925,11 +931,11 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7) {
         },
         ...(hasActual ? [{
           label: 'Actual',
-          data: actualMapped,
+          data: actualData,
           borderColor: '#ffd166',
           borderWidth: 2.5,
           fill: false,
-          pointRadius: 4,
+          pointRadius: 3,
           pointHoverRadius: 7,
           pointBackgroundColor: '#ffd166',
           tension: 0.3,
