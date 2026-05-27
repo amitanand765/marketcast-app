@@ -347,7 +347,7 @@ async function renderHome() {
   }
   globalHtml += `</div>`;
 
-  // Fetch watchlist stock prices in parallel
+  // Fetch watchlist stock prices using market endpoint (lightweight)
   const watchStocks = STOCKS.filter(s => watchlist.includes(s.symbol));
 
   let stocksHtml = '';
@@ -362,17 +362,18 @@ async function renderHome() {
         </div>
       </div>`;
   } else {
+    // Use lightweight price fetch for watchlist
     const stockPrices = await Promise.allSettled(
-      watchStocks.map(s => apiFetch(`/stock/${s.symbol}`))
+      watchStocks.map(s => apiFetch(`/actual-price/${s.symbol}`))
     );
     stocksHtml = `<div class="section"><div class="section-title">⭐ MY WATCHLIST</div>`;
     watchStocks.forEach((s, i) => {
       const result = stockPrices[i];
       const d      = result.status === 'fulfilled' && !result.value?.error ? result.value : null;
-      const price  = d ? `₹${fmt(d.price)}`  : '—';
-      const pct    = d ? d.pct : 0;
-      const chgTxt = d ? `${pct>=0?'▲':'▼'} ${Math.abs(pct).toFixed(2)}%` : '—';
-      const chgCol = pct >= 0 ? '#00c9a7' : '#ef5350';
+      const price  = d?.close ? `₹${fmt(d.close)}` : '—';
+      const pct    = 0;
+      const chgTxt = '—';
+      const chgCol = '#7aa8cc';
       stocksHtml += `
         <div class="stock-row" onclick="navigate('search',${JSON.stringify(s).replace(/"/g,'&quot;')})">
           <div class="stock-icon">${s.symbol.slice(0,3)}</div>
@@ -471,8 +472,7 @@ async function renderStockDetail() {
     </div>
     <div style="padding:14px 16px 0">${spinner()}</div>`;
 
-  // Always fetch fresh data — clear cache
-  delete stockCache[s.symbol];
+  // Fetch stock data — backend caches by date until midnight
   if (!stockCache[s.symbol]) {
     stockCache[s.symbol] = await apiFetch(`/stock/${s.symbol}`);
   }
@@ -493,8 +493,8 @@ async function renderStockDetail() {
 
   // Build intraday chart data
   const intraday = fc.intraday || [];
-  const day7 = fc.day7 || {dates:[],data:{predicted:[],upper:[],lower:[]}};
-  const day30 = fc.day30 || {dates:[],data:{predicted:[],upper:[],lower:[]}};
+  const day7     = fc.day7  || {past_dates:[],past_actual:[],past_forecast:[],dates:[],data:{predicted:[],upper:[],lower:[]}};
+  const day30    = fc.day30 || {past_dates:[],past_actual:[],past_forecast:[],dates:[],data:{predicted:[],upper:[],lower:[]}};
 
   c.innerHTML = `
     <div style="padding:12px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #1b3354">
@@ -772,11 +772,8 @@ async function renderStockDetail() {
       }
     }
     drawIntradayChart(intraday, bullish, actualPoints);
-
-    // Build actual history for 7-day and 30-day charts
-    const actualHistory = d.actual_history || [];
-    drawForecastChart('chart-7d',  day7.dates,  day7.data,  '#4db6ff', actualHistory, 7,  2);
-    drawForecastChart('chart-30d', day30.dates, day30.data, '#ffd166', actualHistory, 30, 5);
+    drawForecastChart('chart-7d',  day7,  '#4db6ff');
+    drawForecastChart('chart-30d', day30, '#ffd166');
   }, 100);
 }
 
@@ -874,43 +871,43 @@ function drawIntradayChart(data, bullish, actualData=[]) {
   });
 }
 
-function drawForecastChart(id, labels, data, color, actualHistory=[], days=7, pastDays=2) {
+function drawForecastChart(id, fc, color) {
   const el = document.getElementById(id);
-  if (!el || !labels?.length) return;
+  if (!el) return;
 
-  // Last N actual days
-  const lastActual = actualHistory.slice(-pastDays);
-  const hasActual  = lastActual.length > 0;
+  const pastDates    = fc.past_dates    || [];
+  const pastActual   = fc.past_actual   || [];
+  const pastForecast = fc.past_forecast || [];
+  const futDates     = fc.dates         || [];
+  const futData      = fc.data          || {predicted:[],upper:[],lower:[]};
 
-  // Build combined timeline: past days + future days
-  const pastLabels = lastActual.map(a => a.date);
-  const allLabels  = [...pastLabels, ...labels];
-  const totalPast  = pastLabels.length;
-  const totalFuture= labels.length;
+  // Combined labels: past dates + future dates
+  const allLabels = [...pastDates, ...futDates];
+  if (!allLabels.length) return;
 
-  // Actual line: past values only, null for future
-  const actualLine = [
-    ...lastActual.map(a => a.price),
-    ...Array(totalFuture).fill(null)
-  ];
+  const np = pastDates.length;
+  const nf = futDates.length;
 
-  // Forecast line: past forecast values + future forecast values
-  // For past days we need to get the forecast that was made for those days
-  // Since we don't have that, we use the actual prices as reference
-  // and show forecast from day 1
-  const allPredicted = [
-    // For past days — show what forecast would have been (use actual as proxy)
-    ...lastActual.map(a => a.price * (1 + (data.predicted[0] - (actualHistory.slice(-1)[0]?.price || data.predicted[0])) / (actualHistory.slice(-1)[0]?.price || 1) * 0.3)),
-    ...data.predicted.slice(0, totalFuture)
+  // Forecast line: past forecast + future forecast
+  const forecastLine = [
+    ...pastForecast.slice(0, np),
+    ...futData.predicted.slice(0, nf)
   ];
   const upperLine = [
-    ...lastActual.map((a, i) => a.price * 1.01),
-    ...(data.upper||[]).slice(0, totalFuture)
+    ...pastForecast.map((v,i) => v * 1.005),
+    ...(futData.upper||[]).slice(0, nf)
   ];
   const lowerLine = [
-    ...lastActual.map((a, i) => a.price * 0.99),
-    ...(data.lower||[]).slice(0, totalFuture)
+    ...pastForecast.map((v,i) => v * 0.995),
+    ...(futData.lower||[]).slice(0, nf)
   ];
+
+  // Actual line: past actual only, null for future
+  const actualLine = [
+    ...pastActual.slice(0, np),
+    ...Array(nf).fill(null)
+  ];
+  const hasActual = pastActual.length > 0;
 
   new Chart(el, {
     type: 'line',
@@ -928,7 +925,7 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7, pa
         },
         {
           label: 'Forecast',
-          data: allPredicted,
+          data: forecastLine,
           borderColor: color,
           borderWidth: 2,
           borderDash: [5,3],
@@ -937,7 +934,7 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7, pa
           pointHoverRadius: 7,
           pointBackgroundColor: color,
           tension: 0.3,
-          spanGaps: false,
+          spanGaps: true,
         },
         {
           label: 'Lower Band',
@@ -963,8 +960,6 @@ function drawForecastChart(id, labels, data, color, actualHistory=[], days=7, pa
       ]
     },
     options: chartOptions('₹', hasActual),
-  });
-}
   });
 }
 
