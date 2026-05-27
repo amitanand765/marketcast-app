@@ -471,8 +471,8 @@ async function renderStockDetail() {
     </div>
     <div style="padding:14px 16px 0">${spinner()}</div>`;
 
-  // Always fetch fresh data — don't use cache for actual prices
-  stockCache[s.symbol] = null;
+  // Always fetch fresh data — clear cache
+  delete stockCache[s.symbol];
   if (!stockCache[s.symbol]) {
     stockCache[s.symbol] = await apiFetch(`/stock/${s.symbol}`);
   }
@@ -743,14 +743,12 @@ async function renderStockDetail() {
 
   // Draw charts after DOM ready
   setTimeout(() => {
-    // Build actual points for chart
+    // Build actual points for intraday chart
     let actualPoints = [];
     if (actual && actual.show_actual && actual.close) {
       if (actual.actual_points && actual.actual_points.length > 0) {
-        // Live intraday points during market hours
         actualPoints = actual.actual_points;
       } else {
-        // After close — spread OHLC across all forecast time slots
         const forecastTimes = intraday.map(d => d.time);
         const n = forecastTimes.length;
         if (n > 0) {
@@ -758,18 +756,14 @@ async function renderStockDetail() {
           const high  = actual.high  || actual.close;
           const low   = actual.low   || actual.close;
           const close = actual.close;
-          // Create smooth curve: open → high (morning) → low (afternoon) → close
           actualPoints = forecastTimes.map((t, i) => {
             const progress = i / (n - 1);
             let price;
             if (progress < 0.3) {
-              // Morning: open to high
               price = open + (high - open) * (progress / 0.3);
             } else if (progress < 0.6) {
-              // Midday: high to low
               price = high + (low - high) * ((progress - 0.3) / 0.3);
             } else {
-              // Afternoon: low to close
               price = low + (close - low) * ((progress - 0.6) / 0.4);
             }
             return {time: t, price: Math.round(price * 100) / 100};
@@ -778,8 +772,11 @@ async function renderStockDetail() {
       }
     }
     drawIntradayChart(intraday, bullish, actualPoints);
-    drawForecastChart('chart-7d',  day7.dates,  day7.data,  '#4db6ff');
-    drawForecastChart('chart-30d', day30.dates, day30.data, '#ffd166');
+
+    // Build actual history for 7-day and 30-day charts
+    const actualHistory = d.actual_history || [];
+    drawForecastChart('chart-7d',  day7.dates,  day7.data,  '#4db6ff', actualHistory, 7);
+    drawForecastChart('chart-30d', day30.dates, day30.data, '#ffd166', actualHistory, 30);
   }, 100);
 }
 
@@ -877,9 +874,20 @@ function drawIntradayChart(data, bullish, actualData=[]) {
   });
 }
 
-function drawForecastChart(id, labels, data, color) {
+function drawForecastChart(id, labels, data, color, actualHistory=[], days=7) {
   const el = document.getElementById(id);
   if (!el || !labels?.length) return;
+
+  // Map last N actual prices to forecast date slots
+  const actualMapped = labels.map(() => null);
+  if (actualHistory.length > 0) {
+    const recent = actualHistory.slice(-days);
+    recent.forEach((a, i) => {
+      if (i < actualMapped.length) actualMapped[i] = a.price;
+    });
+  }
+  const hasActual = actualMapped.some(v => v !== null);
+
   new Chart(el, {
     type: 'line',
     data: {
@@ -899,13 +907,11 @@ function drawForecastChart(id, labels, data, color) {
           data: data.predicted,
           borderColor: color,
           borderWidth: 2,
+          borderDash: [5,3],
           fill: false,
           pointRadius: 3,
           pointHoverRadius: 7,
           pointBackgroundColor: color,
-          pointHoverBackgroundColor: '#fff',
-          pointHoverBorderColor: color,
-          pointHoverBorderWidth: 2,
           tension: 0.3,
         },
         {
@@ -917,9 +923,21 @@ function drawForecastChart(id, labels, data, color) {
           pointRadius: 0,
           pointHoverRadius: 0,
         },
+        ...(hasActual ? [{
+          label: 'Actual',
+          data: actualMapped,
+          borderColor: '#ffd166',
+          borderWidth: 2.5,
+          fill: false,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          pointBackgroundColor: '#ffd166',
+          tension: 0.3,
+          spanGaps: false,
+        }] : []),
       ]
     },
-    options: chartOptions(),
+    options: chartOptions('₹', hasActual),
   });
 }
 
